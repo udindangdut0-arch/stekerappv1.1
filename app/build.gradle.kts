@@ -14,11 +14,11 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.stekerhitam.uunydm"
+    applicationId = "com.stekerhitam.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 2
-    versionName = "1.2"
+    versionCode = 3
+    versionName = "1.3"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -65,7 +65,7 @@ androidComponents {
   onVariants { variant ->
     variant.outputs.forEach { output ->
       val impl = output as? com.android.build.api.variant.impl.VariantOutputImpl
-      impl?.outputFileName?.set("Steker-App-v1.2.apk")
+      impl?.outputFileName?.set("Steker-App-v1.3.apk")
     }
   }
 }

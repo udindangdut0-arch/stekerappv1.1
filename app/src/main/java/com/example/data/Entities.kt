@@ -35,6 +35,7 @@ data class MandatoryDuesPaymentEntity(
 @Entity(tableName = "voluntary_dues")
 data class VoluntaryDuesPaymentEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val memberId: Int = 0,
     val donorName: String,
     val amountPaid: Double,
     val paymentDate: Long,

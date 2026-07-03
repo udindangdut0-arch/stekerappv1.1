@@ -126,7 +126,7 @@ fun PinLoginScreen(viewModel: AppViewModel) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Steker App v1.2",
+                text = "Steker App v1.3",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -330,7 +330,7 @@ fun MainHeader(viewModel: AppViewModel) {
                     letterSpacing = 0.5.sp
                 )
                 Text(
-                    text = "STEKER APP V1.2",
+                    text = "STEKER APP V1.3",
                     fontSize = 9.sp,
                     color = TextWhiteSecondary,
                     fontWeight = FontWeight.Bold,
@@ -1119,6 +1119,71 @@ fun MemberProfileScreen(viewModel: AppViewModel) {
 
     val (member, mandatoryHistory, voluntaryHistory) = profileData!!
 
+    // State for Tabs & Filters
+    var selectedTab by remember { mutableStateOf(0) } // 0: Semua, 1: Iuran Wajib, 2: Sukarela
+    var selectedPeriodFilter by remember { mutableStateOf("Semua Periode") } // "Semua Periode", "Bulan & Tahun"
+    var filterMonth by remember { mutableStateOf(Calendar.getInstance().get(Calendar.MONTH) + 1) }
+    var filterYear by remember { mutableStateOf(Calendar.getInstance().get(Calendar.YEAR)) }
+
+    // State for Delete Confirmation Dialog
+    var paymentToDelete by remember { mutableStateOf<VoluntaryDuesPaymentEntity?>(null) }
+
+    val isDateInPeriod = remember {
+        { dateMs: Long, targetMonth: Int, targetYear: Int ->
+            val cal = Calendar.getInstance()
+            cal.timeInMillis = dateMs
+            (cal.get(Calendar.MONTH) + 1) == targetMonth && cal.get(Calendar.YEAR) == targetYear
+        }
+    }
+
+    // Filtered lists
+    val filteredMandatory = remember(mandatoryHistory, selectedPeriodFilter, filterMonth, filterYear) {
+        if (selectedPeriodFilter == "Semua Periode") {
+            mandatoryHistory
+        } else {
+            mandatoryHistory.filter { it.month == filterMonth && it.year == filterYear }
+        }
+    }
+
+    val filteredVoluntary = remember(voluntaryHistory, selectedPeriodFilter, filterMonth, filterYear) {
+        if (selectedPeriodFilter == "Semua Periode") {
+            voluntaryHistory
+        } else {
+            voluntaryHistory.filter { isDateInPeriod(it.paymentDate, filterMonth, filterYear) }
+        }
+    }
+
+    // Confirmation Dialog
+    if (paymentToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { paymentToDelete = null },
+            title = { Text("Konfirmasi Hapus", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text("Hapus transaksi iuran sukarela ini? Saldo kas dan laporan akan diperbarui otomatis.", color = Color.LightGray) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val p = paymentToDelete
+                        if (p != null) {
+                            viewModel.deleteVoluntaryPayment(p)
+                            Toast.makeText(context, "Riwayat iuran sukarela berhasil dihapus dan saldo telah diperbarui.", Toast.LENGTH_LONG).show()
+                        }
+                        paymentToDelete = null
+                    }
+                ) {
+                    Text("Hapus", color = Color(0xFFC62828), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { paymentToDelete = null }) {
+                    Text("Batal", color = Color.White)
+                }
+            },
+            containerColor = CharcoalSurface,
+            titleContentColor = Color.White,
+            textContentColor = Color.LightGray
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -1271,92 +1336,264 @@ fun MemberProfileScreen(viewModel: AppViewModel) {
             }
         }
 
-        // Payments History Section
+        // TABS FOR SECTIONS (Requirement 5)
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(CharcoalSurface, RoundedCornerShape(10.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf("Semua Riwayat", "Iuran Wajib", "Iuran Sukarela").forEachIndexed { idx, label ->
+                    val isSelected = selectedTab == idx
+                    Button(
+                        onClick = { selectedTab = idx },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            contentColor = if (isSelected) Color.White else Color.Gray
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1.5f),
+                        contentPadding = PaddingValues(vertical = 6.dp, horizontal = 2.dp)
+                    ) {
+                        Text(label, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // FILTER PERIODE SECTION (Requirement 6 & 9)
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Filter Periode:", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.weight(1f))
+                    
+                    var isPeriodFilterExpanded by remember { mutableStateOf(false) }
+                    Box {
+                        Button(
+                            onClick = { isPeriodFilterExpanded = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                            border = BorderStroke(1.dp, CharcoalBorder),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Text(selectedPeriodFilter, fontSize = 11.sp, color = Color.White)
+                        }
+                        DropdownMenu(
+                            expanded = isPeriodFilterExpanded,
+                            onDismissRequest = { isPeriodFilterExpanded = false },
+                            modifier = Modifier.background(CharcoalSurface)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Semua Periode", color = Color.White, fontSize = 11.sp) },
+                                onClick = {
+                                    selectedPeriodFilter = "Semua Periode"
+                                    isPeriodFilterExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Bulan & Tahun", color = Color.White, fontSize = 11.sp) },
+                                onClick = {
+                                    selectedPeriodFilter = "Bulan & Tahun"
+                                    isPeriodFilterExpanded = false
+                                }
+                            )
+                        }
+                    }
+
+                    // Refresh Button (Requirement 9)
+                    Button(
+                        onClick = {
+                            viewModel.refreshAllData()
+                            Toast.makeText(context, "Riwayat diperbarui", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                        border = BorderStroke(1.dp, CharcoalBorder),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Refresh Riwayat", fontSize = 11.sp, color = Color.White)
+                    }
+                }
+                
+                if (selectedPeriodFilter == "Bulan & Tahun") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Month Dropdown
+                        var isMonthExpanded by remember { mutableStateOf(false) }
+                        Box(modifier = Modifier.weight(1f)) {
+                            Button(
+                                onClick = { isMonthExpanded = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                                border = BorderStroke(1.dp, CharcoalBorder),
+                                modifier = Modifier.fillMaxWidth().height(36.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text(viewModel.getIndonesianMonthName(filterMonth), fontSize = 11.sp, color = Color.White)
+                            }
+                            DropdownMenu(
+                                expanded = isMonthExpanded,
+                                onDismissRequest = { isMonthExpanded = false },
+                                modifier = Modifier.background(CharcoalSurface)
+                            ) {
+                                (1..12).forEach { m ->
+                                    DropdownMenuItem(
+                                        text = { Text(viewModel.getIndonesianMonthName(m), color = Color.White, fontSize = 11.sp) },
+                                        onClick = {
+                                            filterMonth = m
+                                            isMonthExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Year Dropdown
+                        var isYearExpanded by remember { mutableStateOf(false) }
+                        Box(modifier = Modifier.weight(1f)) {
+                            Button(
+                                onClick = { isYearExpanded = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                                border = BorderStroke(1.dp, CharcoalBorder),
+                                modifier = Modifier.fillMaxWidth().height(36.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text(filterYear.toString(), fontSize = 11.sp, color = Color.White)
+                            }
+                            DropdownMenu(
+                                expanded = isYearExpanded,
+                                onDismissRequest = { isYearExpanded = false },
+                                modifier = Modifier.background(CharcoalSurface)
+                            ) {
+                                val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+                                ((currentYear - 2)..(currentYear + 2)).forEach { y ->
+                                    DropdownMenuItem(
+                                        text = { Text(y.toString(), color = Color.White, fontSize = 11.sp) },
+                                        onClick = {
+                                            filterYear = y
+                                            isYearExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Payments History Section Title
         item {
             Text(
-                text = "Riwayat Pembayaran Anggota",
-                fontSize = 14.sp,
+                text = "Daftar Riwayat Transaksi",
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
         }
 
-        // Mandatory List items
-        item {
-            Text("Iuran Wajib (Bulanan)", fontSize = 12.sp, color = Color.LightGray, fontWeight = FontWeight.SemiBold)
-        }
-
-        if (mandatoryHistory.isNotEmpty()) {
-            items(mandatoryHistory) { p ->
-                TransactionListItem(
-                    title = "Iuran Wajib (${viewModel.getIndonesianMonthName(p.month)} ${p.year})",
-                    amount = p.amountPaid,
-                    dateMs = p.paymentDate,
-                    isCancelled = p.isCancelled,
-                    note = p.note,
-                    onToggleCancel = {
-                        viewModel.editMandatoryPayment(
-                            id = p.id,
-                            memberId = p.memberId,
-                            month = p.month,
-                            year = p.year,
-                            amount = p.amountPaid,
-                            dateMs = p.paymentDate,
-                            note = p.note,
-                            isCancelled = !p.isCancelled
-                        )
-                    }
-                )
+        // Empty state logic (Requirement 8)
+        val hasAnyHistory = filteredMandatory.isNotEmpty() || filteredVoluntary.isNotEmpty()
+        if (!hasAnyHistory) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Belum ada riwayat pembayaran.",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         } else {
-            item {
-                Text(
-                    text = "Belum ada riwayat pembayaran iuran wajib",
-                    fontSize = 11.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
-        }
-
-        // Voluntary List items
-        item {
-            Text("Iuran Sukarela (Donasi)", fontSize = 12.sp, color = Color.LightGray, fontWeight = FontWeight.SemiBold)
-        }
-
-        if (voluntaryHistory.isNotEmpty()) {
-            items(voluntaryHistory) { p ->
-                TransactionListItem(
-                    title = "Iuran Sukarela ${if (p.paymentTime.isNotBlank()) "- " + p.paymentTime else ""}",
-                    amount = p.amountPaid,
-                    dateMs = p.paymentDate,
-                    isCancelled = p.isCancelled,
-                    note = p.note,
-                    onToggleCancel = {
-                        viewModel.editVoluntaryPayment(
-                            id = p.id,
-                            donorName = p.donorName,
+            // Render list items based on Tab selection
+            if (selectedTab == 0 || selectedTab == 1) {
+                // Mandatory Section
+                if (filteredMandatory.isNotEmpty()) {
+                    item {
+                        Text("Iuran Wajib (Bulanan)", fontSize = 11.sp, color = Color.LightGray, fontWeight = FontWeight.SemiBold)
+                    }
+                    items(filteredMandatory) { p ->
+                        TransactionListItem(
+                            title = "Iuran Wajib (${viewModel.getIndonesianMonthName(p.month)} ${p.year})",
                             amount = p.amountPaid,
                             dateMs = p.paymentDate,
-                            timeStr = p.paymentTime,
+                            isCancelled = p.isCancelled,
                             note = p.note,
-                            isCancelled = !p.isCancelled
+                            onToggleCancel = {
+                                viewModel.editMandatoryPayment(
+                                    id = p.id,
+                                    memberId = p.memberId,
+                                    month = p.month,
+                                    year = p.year,
+                                    amount = p.amountPaid,
+                                    dateMs = p.paymentDate,
+                                    note = p.note,
+                                    isCancelled = !p.isCancelled
+                                )
+                            }
                         )
-                    },
-                    onEdit = {
-                        viewModel.selectVoluntaryPayment(p)
-                        viewModel.setSubScreen(SubScreen.EDIT_VOLUNTARY)
                     }
-                )
+                } else if (selectedTab == 1) {
+                    item {
+                        Text("Belum ada riwayat pembayaran iuran wajib", fontSize = 11.sp, color = Color.Gray)
+                    }
+                }
             }
-        } else {
-            item {
-                Text(
-                    text = "Belum ada riwayat iuran sukarela",
-                    fontSize = 11.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
+
+            if (selectedTab == 0 || selectedTab == 2) {
+                // Voluntary Section
+                if (filteredVoluntary.isNotEmpty()) {
+                    item {
+                        Text("Iuran Sukarela (Donasi)", fontSize = 11.sp, color = Color.LightGray, fontWeight = FontWeight.SemiBold)
+                    }
+                    items(filteredVoluntary) { p ->
+                        TransactionListItem(
+                            title = "Iuran Sukarela ${if (p.paymentTime.isNotBlank()) "- " + p.paymentTime else ""}",
+                            amount = p.amountPaid,
+                            dateMs = p.paymentDate,
+                            isCancelled = p.isCancelled,
+                            note = p.note,
+                            onToggleCancel = {
+                                viewModel.editVoluntaryPayment(
+                                    id = p.id,
+                                    memberId = p.memberId,
+                                    donorName = p.donorName,
+                                    amount = p.amountPaid,
+                                    dateMs = p.paymentDate,
+                                    timeStr = p.paymentTime,
+                                    note = p.note,
+                                    isCancelled = !p.isCancelled
+                                )
+                            },
+                            onEdit = {
+                                viewModel.selectVoluntaryPayment(p)
+                                viewModel.setSubScreen(SubScreen.EDIT_VOLUNTARY)
+                            },
+                            onDelete = {
+                                paymentToDelete = p
+                            }
+                        )
+                    }
+                } else if (selectedTab == 2) {
+                    item {
+                        Text("Belum ada riwayat iuran sukarela", fontSize = 11.sp, color = Color.Gray)
+                    }
+                }
             }
         }
     }
@@ -1370,7 +1607,8 @@ fun TransactionListItem(
     isCancelled: Boolean,
     note: String,
     onToggleCancel: () -> Unit,
-    onEdit: (() -> Unit)? = null
+    onEdit: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CharcoalSurface),
@@ -1437,8 +1675,27 @@ fun TransactionListItem(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Cancel action button (to toggle cancel state)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            // Action buttons row (Toggle Cancel and Delete)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (onDelete != null) {
+                    TextButton(
+                        onClick = onDelete,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text(
+                            text = "Hapus",
+                            fontSize = 10.sp,
+                            color = Color(0xFFE57373)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+
                 TextButton(
                     onClick = onToggleCancel,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
@@ -1799,6 +2056,7 @@ fun IuranSukarelaSubTab(viewModel: AppViewModel) {
                     onToggleCancel = {
                         viewModel.editVoluntaryPayment(
                             id = p.id,
+                            memberId = p.memberId,
                             donorName = p.donorName,
                             amount = p.amountPaid,
                             dateMs = p.paymentDate,
@@ -1958,7 +2216,7 @@ fun KasPengeluaranSubTab(viewModel: AppViewModel) {
                             "Voluntary" -> {
                                 val original = voluntaryPayments.find { it.id == item.id }
                                 if (original != null) {
-                                    viewModel.editVoluntaryPayment(original.id, original.donorName, original.amountPaid, original.paymentDate, original.paymentTime, original.note, !original.isCancelled)
+                                    viewModel.editVoluntaryPayment(original.id, original.memberId, original.donorName, original.amountPaid, original.paymentDate, original.paymentTime, original.note, !original.isCancelled)
                                 }
                             }
                             "Other" -> {
@@ -2506,7 +2764,7 @@ fun LainnyaTabScreen(viewModel: AppViewModel) {
                         contentScale = ContentScale.Crop
                     )
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text("Steker App v1.2", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Steker App v1.3", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Text("Satu Aplikasi untuk Semua Kebutuhan", fontSize = 11.sp, color = Color.LightGray)
                     Text("Organisasi Steker Hitam", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
@@ -2899,6 +3157,23 @@ fun SettingsScreen(viewModel: AppViewModel) {
                 }
             }
         }
+
+        // Section 4: Version Indicator
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Versi 1.3",
+                    fontSize = 11.sp,
+                    color = Color.Gray,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
     }
 }
 
@@ -3125,7 +3400,13 @@ fun AddMandatoryScreen(viewModel: AppViewModel) {
 
 @Composable
 fun AddVoluntaryScreen(viewModel: AppViewModel) {
-    var donorName by remember { mutableStateOf("") }
+    val membersList by viewModel.members.collectAsStateWithLifecycle()
+    val activeMembers = remember(membersList) { membersList.filter { it.status == "Aktif" } }
+
+    var selectedMemberId by remember { mutableStateOf(0) }
+    var memberSearchQuery by remember { mutableStateOf("") }
+    var isDropdownExpanded by remember { mutableStateOf(false) }
+
     var amountText by remember { mutableStateOf("") }
     var noteText by remember { mutableStateOf("") }
     var paymentDateMs by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -3133,6 +3414,9 @@ fun AddVoluntaryScreen(viewModel: AppViewModel) {
     val sdf = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
     val dateStr = sdf.format(Date(paymentDateMs))
     val context = LocalContext.current
+
+    val selectedMem = activeMembers.find { it.id == selectedMemberId }
+    val canSave = selectedMem != null && amountText.toDoubleOrNull() != null && (amountText.toDoubleOrNull() ?: 0.0) > 0.0
 
     Column(
         modifier = Modifier
@@ -3142,14 +3426,79 @@ fun AddVoluntaryScreen(viewModel: AppViewModel) {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        OutlinedTextField(
-            value = donorName,
-            onValueChange = { donorName = it },
-            label = { Text("Nama Anggota / Donatur") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-        )
+        if (activeMembers.isEmpty()) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFC62828).copy(alpha = 0.2f)),
+                border = BorderStroke(1.dp, Color(0xFFC62828)),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Belum ada anggota aktif. Tambahkan atau aktifkan anggota terlebih dahulu.",
+                    color = Color(0xFFEF9A9A),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(16.dp),
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            // Searchable Dropdown Container
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = if (isDropdownExpanded) memberSearchQuery else (selectedMem?.name ?: "Pilih Anggota Aktif..."),
+                    onValueChange = {
+                        memberSearchQuery = it
+                        isDropdownExpanded = true
+                    },
+                    label = { Text("Pilih Anggota Aktif") },
+                    placeholder = { Text("Ketik untuk mencari nama...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                    trailingIcon = {
+                        IconButton(onClick = { isDropdownExpanded = !isDropdownExpanded }) {
+                            Icon(
+                                imageVector = if (isDropdownExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                contentDescription = "Toggle Dropdown",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                )
+
+                val filteredMembers = activeMembers.filter {
+                    it.name.contains(memberSearchQuery, ignoreCase = true)
+                }
+
+                DropdownMenu(
+                    expanded = isDropdownExpanded,
+                    onDismissRequest = { isDropdownExpanded = false },
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .background(CharcoalSurface)
+                        .border(1.dp, CharcoalBorder, RoundedCornerShape(8.dp))
+                ) {
+                    if (filteredMembers.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("Tidak ada anggota aktif yang cocok", color = Color.Gray) },
+                            onClick = {}
+                        )
+                    } else {
+                        filteredMembers.take(8).forEach { m ->
+                            DropdownMenuItem(
+                                text = { Text(m.name, color = Color.White) },
+                                onClick = {
+                                    selectedMemberId = m.id
+                                    memberSearchQuery = m.name
+                                    isDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         OutlinedTextField(
             value = amountText,
@@ -3211,9 +3560,10 @@ fun AddVoluntaryScreen(viewModel: AppViewModel) {
         Button(
             onClick = {
                 val amt = amountText.toDoubleOrNull() ?: 0.0
-                if (donorName.isNotBlank() && amt > 0.0) {
+                if (canSave && selectedMem != null) {
                     viewModel.addVoluntaryPayment(
-                        donorName = donorName,
+                        memberId = selectedMem.id,
+                        donorName = selectedMem.name,
                         amount = amt,
                         dateMs = paymentDateMs,
                         timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(paymentDateMs)),
@@ -3221,13 +3571,17 @@ fun AddVoluntaryScreen(viewModel: AppViewModel) {
                     )
                 }
             },
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            enabled = canSave,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (canSave) MaterialTheme.colorScheme.primary else Color.Gray,
+                disabledContainerColor = Color.Gray.copy(alpha = 0.5f)
+            ),
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)
         ) {
-            Text("Simpan Iuran Sukarela", fontWeight = FontWeight.Bold, color = Color.White)
+            Text("Simpan Iuran Sukarela", fontWeight = FontWeight.Bold, color = if (canSave) Color.White else Color.LightGray)
         }
     }
 }
@@ -3244,8 +3598,17 @@ fun EditVoluntaryScreen(viewModel: AppViewModel) {
     }
 
     val payment = selectedPayment!!
+    val membersList by viewModel.members.collectAsStateWithLifecycle()
+    val activeMembers = remember(membersList) { membersList.filter { it.status == "Aktif" } }
 
-    var donorName by remember(payment) { mutableStateOf(payment.donorName) }
+    var selectedMemberId by remember(payment) {
+        val existing = membersList.find { it.id == payment.memberId }
+        val fallback = if (existing == null) membersList.find { it.name.trim().lowercase() == payment.donorName.trim().lowercase() } else null
+        mutableStateOf(existing?.id ?: fallback?.id ?: 0)
+    }
+    var memberSearchQuery by remember(payment) { mutableStateOf("") }
+    var isDropdownExpanded by remember { mutableStateOf(false) }
+
     var amountText by remember(payment) { mutableStateOf(payment.amountPaid.toInt().toString()) }
     var noteText by remember(payment) { mutableStateOf(payment.note) }
     var paymentDateMs by remember(payment) { mutableStateOf(payment.paymentDate) }
@@ -3253,6 +3616,9 @@ fun EditVoluntaryScreen(viewModel: AppViewModel) {
     val sdf = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
     val dateStr = sdf.format(Date(paymentDateMs))
     val context = LocalContext.current
+
+    val selectedMem = membersList.find { it.id == selectedMemberId }
+    val canSave = selectedMem != null && amountText.toDoubleOrNull() != null && (amountText.toDoubleOrNull() ?: 0.0) > 0.0
 
     Column(
         modifier = Modifier
@@ -3262,14 +3628,79 @@ fun EditVoluntaryScreen(viewModel: AppViewModel) {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        OutlinedTextField(
-            value = donorName,
-            onValueChange = { donorName = it },
-            label = { Text("Nama Anggota / Donatur") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-        )
+        if (activeMembers.isEmpty()) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFC62828).copy(alpha = 0.2f)),
+                border = BorderStroke(1.dp, Color(0xFFC62828)),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Belum ada anggota aktif. Tambahkan atau aktifkan anggota terlebih dahulu.",
+                    color = Color(0xFFEF9A9A),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(16.dp),
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            // Searchable Dropdown Container
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = if (isDropdownExpanded) memberSearchQuery else (selectedMem?.name ?: "Pilih Anggota Aktif..."),
+                    onValueChange = {
+                        memberSearchQuery = it
+                        isDropdownExpanded = true
+                    },
+                    label = { Text("Pilih Anggota Aktif") },
+                    placeholder = { Text("Ketik untuk mencari nama...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                    trailingIcon = {
+                        IconButton(onClick = { isDropdownExpanded = !isDropdownExpanded }) {
+                            Icon(
+                                imageVector = if (isDropdownExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                contentDescription = "Toggle Dropdown",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                )
+
+                val filteredMembers = activeMembers.filter {
+                    it.name.contains(memberSearchQuery, ignoreCase = true)
+                }
+
+                DropdownMenu(
+                    expanded = isDropdownExpanded,
+                    onDismissRequest = { isDropdownExpanded = false },
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .background(CharcoalSurface)
+                        .border(1.dp, CharcoalBorder, RoundedCornerShape(8.dp))
+                ) {
+                    if (filteredMembers.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("Tidak ada anggota aktif yang cocok", color = Color.Gray) },
+                            onClick = {}
+                        )
+                    } else {
+                        filteredMembers.take(8).forEach { m ->
+                            DropdownMenuItem(
+                                text = { Text(m.name, color = Color.White) },
+                                onClick = {
+                                    selectedMemberId = m.id
+                                    memberSearchQuery = m.name
+                                    isDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         OutlinedTextField(
             value = amountText,
@@ -3333,10 +3764,11 @@ fun EditVoluntaryScreen(viewModel: AppViewModel) {
         Button(
             onClick = {
                 val amt = amountText.toDoubleOrNull() ?: 0.0
-                if (donorName.isNotBlank() && amt > 0.0) {
+                if (canSave && selectedMem != null) {
                     viewModel.editVoluntaryPayment(
                         id = payment.id,
-                        donorName = donorName,
+                        memberId = selectedMem.id,
+                        donorName = selectedMem.name,
                         amount = amt,
                         dateMs = paymentDateMs,
                         timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(paymentDateMs)),
@@ -3345,13 +3777,17 @@ fun EditVoluntaryScreen(viewModel: AppViewModel) {
                     )
                 }
             },
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            enabled = canSave,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (canSave) MaterialTheme.colorScheme.primary else Color.Gray,
+                disabledContainerColor = Color.Gray.copy(alpha = 0.5f)
+            ),
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)
         ) {
-            Text("Simpan Perubahan", fontWeight = FontWeight.Bold, color = Color.White)
+            Text("Simpan Perubahan", fontWeight = FontWeight.Bold, color = if (canSave) Color.White else Color.LightGray)
         }
 
         Button(
@@ -3437,12 +3873,14 @@ fun AddOtherIncomeScreen(viewModel: AppViewModel) {
 
 @Composable
 fun AddExpenseScreen(viewModel: AppViewModel) {
+    val membersList by viewModel.members.collectAsStateWithLifecycle()
     var selectedCategory by remember { mutableStateOf("Operasional") } // "Bantuan Sosial", "Kegiatan", "Konsumsi", "Operasional", "Lainnya"
     var amountText by remember { mutableStateOf("") }
     var recipient by remember { mutableStateOf("") }
     var noteText by remember { mutableStateOf("") }
 
     var isCategoryExpanded by remember { mutableStateOf(false) }
+    var isMemberDropdownExpanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -3493,14 +3931,55 @@ fun AddExpenseScreen(viewModel: AppViewModel) {
             colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
         )
 
-        OutlinedTextField(
-            value = recipient,
-            onValueChange = { recipient = it },
-            label = { Text("Nama Penerima") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-        )
+        // Recipient label and optional member selector
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Nama Penerima", fontSize = 12.sp, color = Color.Gray)
+                
+                if (membersList.isNotEmpty()) {
+                    Box {
+                        TextButton(
+                            onClick = { isMemberDropdownExpanded = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text("Pilih Anggota Opsional", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        DropdownMenu(
+                            expanded = isMemberDropdownExpanded,
+                            onDismissRequest = { isMemberDropdownExpanded = false },
+                            modifier = Modifier
+                                .fillMaxWidth(0.6f)
+                                .background(CharcoalSurface)
+                                .border(1.dp, CharcoalBorder, RoundedCornerShape(8.dp))
+                        ) {
+                            membersList.forEach { m ->
+                                DropdownMenuItem(
+                                    text = { Text(m.name, color = Color.White, fontSize = 11.sp) },
+                                    onClick = {
+                                        recipient = m.name
+                                        isMemberDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = recipient,
+                onValueChange = { recipient = it },
+                placeholder = { Text("Ketik nama bebas atau pilih anggota...") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+            )
+        }
 
         OutlinedTextField(
             value = noteText,

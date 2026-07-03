@@ -99,8 +99,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (memberId == null) return@combine null
         val member = memberList.find { it.id == memberId } ?: return@combine null
         val mandatoryPaymentsFiltered = mandatoryList.filter { it.memberId == memberId }
-        // For voluntary, we match by exact donorName if it's identical
-        val voluntaryPaymentsFiltered = voluntaryList.filter { it.donorName.equals(member.name, ignoreCase = true) }
+        // Match voluntary payments by memberId, or by donorName if memberId is 0 (fallback for older transactions)
+        val voluntaryPaymentsFiltered = voluntaryList.filter {
+            it.memberId == memberId || (it.memberId == 0 && it.donorName.equals(member.name, ignoreCase = true))
+        }
         
         Triple(member, mandatoryPaymentsFiltered, voluntaryPaymentsFiltered)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -296,7 +298,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // CRUD - VOLUNTARY PAYMENTS
-    fun addVoluntaryPayment(donorName: String, amount: Double, dateMs: Long, timeStr: String, note: String) {
+    fun addVoluntaryPayment(memberId: Int, donorName: String, amount: Double, dateMs: Long, timeStr: String, note: String) {
         viewModelScope.launch {
             if (donorName.isBlank()) return@launch
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = dateMs }
@@ -304,6 +306,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val rYear = cal.get(java.util.Calendar.YEAR)
             repository.insertVoluntaryPayment(
                 VoluntaryDuesPaymentEntity(
+                    memberId = memberId,
                     donorName = donorName.trim(),
                     amountPaid = amount,
                     paymentDate = dateMs,
@@ -318,7 +321,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun editVoluntaryPayment(id: Int, donorName: String, amount: Double, dateMs: Long, timeStr: String, note: String, isCancelled: Boolean = false) {
+    fun editVoluntaryPayment(id: Int, memberId: Int, donorName: String, amount: Double, dateMs: Long, timeStr: String, note: String, isCancelled: Boolean = false) {
         viewModelScope.launch {
             if (donorName.isBlank()) return@launch
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = dateMs }
@@ -327,6 +330,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             repository.updateVoluntaryPayment(
                 VoluntaryDuesPaymentEntity(
                     id = id,
+                    memberId = memberId,
                     donorName = donorName.trim(),
                     amountPaid = amount,
                     paymentDate = dateMs,
@@ -477,6 +481,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _refreshTrigger.value = System.currentTimeMillis()
     }
 
+    fun refreshAllData() {
+        _refreshTrigger.value = System.currentTimeMillis()
+    }
+
     // Combined live data computation for Special Payment Report (Anggota Sudah Membayar)
     val specialPaymentReportState: StateFlow<Pair<List<PaymentReportItem>, SpecialReportSummary>> = combine(
         selectedMonth,
@@ -618,10 +626,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val monthName = getIndonesianMonthName(selectedMonth.value)
             ExportHelper.exportSpecialReportToPdf(
                 context = context,
-                monthName = monthName,
+                month = selectedMonth.value,
                 year = selectedYear.value,
+                monthName = monthName,
                 reportItems = list,
                 summary = summary,
+                mandatoryPayments = mandatoryPayments.value,
+                voluntaryPayments = voluntaryPayments.value,
+                otherIncomes = otherIncomes.value,
+                expenses = expenses.value,
                 shareToWhatsApp = shareToWhatsApp
             )
         }
