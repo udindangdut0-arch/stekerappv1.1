@@ -40,7 +40,9 @@ data class VoluntaryDuesPaymentEntity(
     val paymentDate: Long,
     val paymentTime: String = "", // Optional e.g. "14:30"
     val note: String,
-    val isCancelled: Boolean = false
+    val isCancelled: Boolean = false,
+    val reportMonth: Int = 0,
+    val reportYear: Int = 0
 )
 
 @Entity(tableName = "other_income")

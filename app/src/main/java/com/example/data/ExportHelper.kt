@@ -179,7 +179,7 @@ object ExportHelper {
                     // Draw Footer of current page
                     paint.color = Color.GRAY
                     paint.textSize = 8f
-                    canvas.drawText("Halaman $pageNumber | Steker App v1.1", 30f, (pageHeight - 35).toFloat(), paint)
+                    canvas.drawText("Halaman $pageNumber | Steker App v1.2", 30f, (pageHeight - 35).toFloat(), paint)
 
                     pdfDocument.finishPage(currentPage)
                     
@@ -249,7 +249,7 @@ object ExportHelper {
                 // Draw Footer of current page
                 paint.color = Color.GRAY
                 paint.textSize = 8f
-                canvas.drawText("Halaman $pageNumber | Steker App v1.1", 30f, (pageHeight - 35).toFloat(), paint)
+                canvas.drawText("Halaman $pageNumber | Steker App v1.2", 30f, (pageHeight - 35).toFloat(), paint)
 
                 pdfDocument.finishPage(currentPage)
                 
@@ -271,7 +271,7 @@ object ExportHelper {
             paint.color = Color.GRAY
             paint.textSize = 8f
             paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            canvas.drawText("Halaman $pageNumber | Steker App v1.1", 30f, (pageHeight - 35).toFloat(), paint)
+            canvas.drawText("Halaman $pageNumber | Steker App v1.2", 30f, (pageHeight - 35).toFloat(), paint)
 
             pdfDocument.finishPage(currentPage)
 

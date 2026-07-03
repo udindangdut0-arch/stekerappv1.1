@@ -47,6 +47,10 @@ class Repository(private val db: AppDatabase) {
         db.voluntaryDuesDao().updatePayment(payment)
     }
 
+    suspend fun deleteVoluntaryPayment(payment: VoluntaryDuesPaymentEntity) {
+        db.voluntaryDuesDao().deletePayment(payment)
+    }
+
     suspend fun insertOtherIncome(income: OtherIncomeEntity): Long {
         return db.otherIncomeDao().insertIncome(income)
     }
@@ -230,9 +234,13 @@ class Repository(private val db: AppDatabase) {
                     val arr = obj.getJSONArray("voluntary")
                     for (i in 0 until arr.length()) {
                         val p = arr.getJSONObject(i)
+                        val pDate = p.getLong("date")
+                        val cal = java.util.Calendar.getInstance().apply { timeInMillis = pDate }
+                        val rMonth = cal.get(java.util.Calendar.MONTH) + 1
+                        val rYear = cal.get(java.util.Calendar.YEAR)
                         db.openHelper.writableDatabase.execSQL(
-                            "INSERT OR REPLACE INTO voluntary_dues (id, donorName, amountPaid, paymentDate, paymentTime, note, isCancelled) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            arrayOf(p.getInt("id"), p.getString("donorName"), p.getDouble("amount"), p.getLong("date"), p.getString("time"), p.getString("note"), if (p.getBoolean("isCancelled")) 1 else 0)
+                            "INSERT OR REPLACE INTO voluntary_dues (id, donorName, amountPaid, paymentDate, paymentTime, note, isCancelled, reportMonth, reportYear) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            arrayOf(p.getInt("id"), p.getString("donorName"), p.getDouble("amount"), pDate, p.getString("time"), p.getString("note"), if (p.getBoolean("isCancelled")) 1 else 0, rMonth, rYear)
                         )
                     }
                 }

@@ -55,6 +55,9 @@ interface VoluntaryDuesDao {
 
     @Update
     suspend fun updatePayment(payment: VoluntaryDuesPaymentEntity)
+
+    @Delete
+    suspend fun deletePayment(payment: VoluntaryDuesPaymentEntity)
 }
 
 @Dao

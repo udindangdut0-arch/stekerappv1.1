@@ -126,7 +126,7 @@ fun PinLoginScreen(viewModel: AppViewModel) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Steker App v1.1",
+                text = "Steker App v1.2",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -272,6 +272,7 @@ fun MainShellScreen(viewModel: AppViewModel) {
                     SubScreen.MEMBER_PROFILE -> MemberProfileScreen(viewModel)
                     SubScreen.ADD_MANDATORY -> AddMandatoryScreen(viewModel)
                     SubScreen.ADD_VOLUNTARY -> AddVoluntaryScreen(viewModel)
+                    SubScreen.EDIT_VOLUNTARY -> EditVoluntaryScreen(viewModel)
                     SubScreen.ADD_EXPENSE -> AddExpenseScreen(viewModel)
                     SubScreen.ADD_OTHER_INCOME -> AddOtherIncomeScreen(viewModel)
                     SubScreen.SETTINGS -> SettingsScreen(viewModel)
@@ -329,7 +330,7 @@ fun MainHeader(viewModel: AppViewModel) {
                     letterSpacing = 0.5.sp
                 )
                 Text(
-                    text = "STEKER APP V1.1",
+                    text = "STEKER APP V1.2",
                     fontSize = 9.sp,
                     color = TextWhiteSecondary,
                     fontWeight = FontWeight.Bold,
@@ -365,6 +366,7 @@ fun SubHeader(viewModel: AppViewModel) {
         SubScreen.MEMBER_PROFILE -> "Profil Anggota"
         SubScreen.ADD_MANDATORY -> "Tambah Iuran Wajib"
         SubScreen.ADD_VOLUNTARY -> "Tambah Iuran Sukarela"
+        SubScreen.EDIT_VOLUNTARY -> "Edit Iuran Sukarela"
         SubScreen.ADD_EXPENSE -> "Tambah Pengeluaran"
         SubScreen.ADD_OTHER_INCOME -> "Tambah Pemasukan Lain"
         SubScreen.SETTINGS -> "Pengaturan Aplikasi"
@@ -1340,6 +1342,10 @@ fun MemberProfileScreen(viewModel: AppViewModel) {
                             note = p.note,
                             isCancelled = !p.isCancelled
                         )
+                    },
+                    onEdit = {
+                        viewModel.selectVoluntaryPayment(p)
+                        viewModel.setSubScreen(SubScreen.EDIT_VOLUNTARY)
                     }
                 )
             }
@@ -1363,13 +1369,22 @@ fun TransactionListItem(
     dateMs: Long,
     isCancelled: Boolean,
     note: String,
-    onToggleCancel: () -> Unit
+    onToggleCancel: () -> Unit,
+    onEdit: (() -> Unit)? = null
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CharcoalSurface),
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, CharcoalBorder),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (onEdit != null) {
+                    Modifier.clickable { onEdit() }
+                } else {
+                    Modifier
+                }
+            )
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(
@@ -1378,13 +1393,24 @@ fun TransactionListItem(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = title,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isCancelled) Color.Gray else Color.White,
-                        style = if (isCancelled) LocalTextStyle.current.copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough) else LocalTextStyle.current
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = title,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isCancelled) Color.Gray else Color.White,
+                            style = if (isCancelled) LocalTextStyle.current.copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough) else LocalTextStyle.current
+                        )
+                        if (onEdit != null) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit",
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
                     Text(
                         text = formatDate(dateMs),
                         fontSize = 10.sp,
@@ -1780,6 +1806,10 @@ fun IuranSukarelaSubTab(viewModel: AppViewModel) {
                             note = p.note,
                             isCancelled = !p.isCancelled
                         )
+                    },
+                    onEdit = {
+                        viewModel.selectVoluntaryPayment(p)
+                        viewModel.setSubScreen(SubScreen.EDIT_VOLUNTARY)
                     }
                 )
             }
@@ -1944,7 +1974,16 @@ fun KasPengeluaranSubTab(viewModel: AppViewModel) {
                                 }
                             }
                         }
-                    }
+                    },
+                    onEdit = if (item.tag == "Voluntary") {
+                        {
+                            val original = voluntaryPayments.find { it.id == item.id }
+                            if (original != null) {
+                                viewModel.selectVoluntaryPayment(original)
+                                viewModel.setSubScreen(SubScreen.EDIT_VOLUNTARY)
+                            }
+                        }
+                    } else null
                 )
             }
         } else {
@@ -2149,6 +2188,13 @@ fun SpecialReportPaidMembersSubTab(viewModel: AppViewModel) {
         Spacer(modifier = Modifier.height(14.dp))
 
         // Summary Statistics Box in UI
+        val voluntaryPayments by viewModel.voluntaryPayments.collectAsStateWithLifecycle()
+        val month by viewModel.selectedMonth.collectAsStateWithLifecycle()
+        val year by viewModel.selectedYear.collectAsStateWithLifecycle()
+        val currentPeriodVoluntaryCount = remember(voluntaryPayments, month, year) {
+            voluntaryPayments.count { !it.isCancelled && isDateInPeriod(it.paymentDate, month, year) }
+        }
+
         Card(
             colors = CardDefaults.cardColors(containerColor = CharcoalSurface),
             shape = RoundedCornerShape(12.dp),
@@ -2156,20 +2202,74 @@ fun SpecialReportPaidMembersSubTab(viewModel: AppViewModel) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
-                Text("REKAP PEMBAYAR PERIODE INI", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                Spacer(modifier = Modifier.height(8.dp))
+                // Section 1: Ringkasan Iuran Wajib
+                Text("RINGKASAN IURAN WAJIB", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Anggota Bayar Wajib: ${summary.numMandatoryPayers}", fontSize = 11.sp, color = Color.White)
-                    Text("Wajib: ${formatRupiah(summary.totalMandatoryCollected)}", fontSize = 11.sp, color = Color.LightGray)
+                    Text("Anggota Pembayar Wajib:", fontSize = 11.sp, color = Color.Gray)
+                    Text("${summary.numMandatoryPayers} Orang", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                 }
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Anggota Bayar Sukarela: ${summary.numVoluntaryPayers}", fontSize = 11.sp, color = Color.White)
-                    Text("Sukarela: ${formatRupiah(summary.totalVoluntaryCollected)}", fontSize = 11.sp, color = Color.LightGray)
+                    Text("Total Dana Terkumpul:", fontSize = 11.sp, color = Color.Gray)
+                    Text(formatRupiah(summary.totalMandatoryCollected), fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
                 }
-                Divider(color = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 6.dp))
+
+                Divider(color = Color.Gray.copy(alpha = 0.15f), modifier = Modifier.padding(vertical = 8.dp))
+
+                // Section 2: Ringkasan Iuran Sukarela
+                Text("RINGKASAN IURAN SUKARELA / DONASI", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("TOTAL DANA TERKUMPUL:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text(formatRupiah(summary.totalFundsReceived), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                    Text("Anggota/Donatur Pembayar Sukarela:", fontSize = 11.sp, color = Color.Gray)
+                    Text("${summary.numVoluntaryPayers} Orang", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Total Dana Terkumpul:", fontSize = 11.sp, color = Color.Gray)
+                    Text(formatRupiah(summary.totalVoluntaryCollected), fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+
+                Divider(color = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 8.dp))
+
+                // Section 3: Total Pemasukan Gabungan
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("TOTAL GABUNGAN PEMASUKAN:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(formatRupiah(summary.totalFundsReceived), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Refresh and Debug Panel
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(
+                onClick = { viewModel.refreshReports() },
+                colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, CharcoalBorder),
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Refresh Laporan", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+
+            // Debug info box
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.3f)),
+                modifier = Modifier.weight(1.3f)
+            ) {
+                Column(modifier = Modifier.padding(6.dp)) {
+                    Text("DEBUG INFO (TEMPORER)", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color.Red)
+                    Text("Iuran Sukarela di DB: ${voluntaryPayments.size}", fontSize = 9.sp, color = Color.LightGray)
+                    Text("Periode terpilih: $currentPeriodVoluntaryCount data", fontSize = 9.sp, color = Color.LightGray)
                 }
             }
         }
@@ -2406,7 +2506,7 @@ fun LainnyaTabScreen(viewModel: AppViewModel) {
                         contentScale = ContentScale.Crop
                     )
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text("Steker App v1.1", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Steker App v1.2", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Text("Satu Aplikasi untuk Semua Kebutuhan", fontSize = 11.sp, color = Color.LightGray)
                     Text("Organisasi Steker Hitam", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
@@ -3028,6 +3128,11 @@ fun AddVoluntaryScreen(viewModel: AppViewModel) {
     var donorName by remember { mutableStateOf("") }
     var amountText by remember { mutableStateOf("") }
     var noteText by remember { mutableStateOf("") }
+    var paymentDateMs by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    val sdf = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
+    val dateStr = sdf.format(Date(paymentDateMs))
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -3056,6 +3161,45 @@ fun AddVoluntaryScreen(viewModel: AppViewModel) {
             colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
         )
 
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val calendar = Calendar.getInstance().apply { timeInMillis = paymentDateMs }
+                    android.app.DatePickerDialog(
+                        context,
+                        { _, year, monthOfYear, dayOfMonth ->
+                            val selectedCal = Calendar.getInstance().apply {
+                                set(Calendar.YEAR, year)
+                                set(Calendar.MONTH, monthOfYear)
+                                set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                            }
+                            paymentDateMs = selectedCal.timeInMillis
+                        },
+                        calendar.get(Calendar.YEAR),
+                        calendar.get(Calendar.MONTH),
+                        calendar.get(Calendar.DAY_OF_MONTH)
+                    ).show()
+                }
+        ) {
+            OutlinedTextField(
+                value = dateStr,
+                onValueChange = {},
+                label = { Text("Tanggal Pembayaran") },
+                readOnly = true,
+                enabled = false,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    disabledTextColor = Color.White,
+                    disabledBorderColor = CharcoalBorder,
+                    disabledLabelColor = Color.Gray
+                ),
+                trailingIcon = {
+                    Icon(Icons.Default.Event, contentDescription = "Pilih Tanggal", tint = Color.White)
+                }
+            )
+        }
+
         OutlinedTextField(
             value = noteText,
             onValueChange = { noteText = it },
@@ -3071,8 +3215,8 @@ fun AddVoluntaryScreen(viewModel: AppViewModel) {
                     viewModel.addVoluntaryPayment(
                         donorName = donorName,
                         amount = amt,
-                        dateMs = System.currentTimeMillis(),
-                        timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()),
+                        dateMs = paymentDateMs,
+                        timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(paymentDateMs)),
                         note = noteText
                     )
                 }
@@ -3084,6 +3228,145 @@ fun AddVoluntaryScreen(viewModel: AppViewModel) {
                 .height(48.dp)
         ) {
             Text("Simpan Iuran Sukarela", fontWeight = FontWeight.Bold, color = Color.White)
+        }
+    }
+}
+
+@Composable
+fun EditVoluntaryScreen(viewModel: AppViewModel) {
+    val selectedPayment by viewModel.selectedVoluntaryPayment.collectAsStateWithLifecycle()
+
+    if (selectedPayment == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Tidak ada data iuran sukarela yang dipilih", color = Color.Gray)
+        }
+        return
+    }
+
+    val payment = selectedPayment!!
+
+    var donorName by remember(payment) { mutableStateOf(payment.donorName) }
+    var amountText by remember(payment) { mutableStateOf(payment.amountPaid.toInt().toString()) }
+    var noteText by remember(payment) { mutableStateOf(payment.note) }
+    var paymentDateMs by remember(payment) { mutableStateOf(payment.paymentDate) }
+
+    val sdf = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
+    val dateStr = sdf.format(Date(paymentDateMs))
+    val context = LocalContext.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        OutlinedTextField(
+            value = donorName,
+            onValueChange = { donorName = it },
+            label = { Text("Nama Anggota / Donatur") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+        )
+
+        OutlinedTextField(
+            value = amountText,
+            onValueChange = { amountText = it },
+            label = { Text("Nominal Iuran Sukarela") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val calendar = Calendar.getInstance().apply { timeInMillis = paymentDateMs }
+                    android.app.DatePickerDialog(
+                        context,
+                        { _, year, monthOfYear, dayOfMonth ->
+                            val selectedCal = Calendar.getInstance().apply {
+                                set(Calendar.YEAR, year)
+                                set(Calendar.MONTH, monthOfYear)
+                                set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                            }
+                            paymentDateMs = selectedCal.timeInMillis
+                        },
+                        calendar.get(Calendar.YEAR),
+                        calendar.get(Calendar.MONTH),
+                        calendar.get(Calendar.DAY_OF_MONTH)
+                    ).show()
+                }
+        ) {
+            OutlinedTextField(
+                value = dateStr,
+                onValueChange = {},
+                label = { Text("Tanggal Pembayaran") },
+                readOnly = true,
+                enabled = false,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    disabledTextColor = Color.White,
+                    disabledBorderColor = CharcoalBorder,
+                    disabledLabelColor = Color.Gray
+                ),
+                trailingIcon = {
+                    Icon(Icons.Default.Event, contentDescription = "Pilih Tanggal", tint = Color.White)
+                }
+            )
+        }
+
+        OutlinedTextField(
+            value = noteText,
+            onValueChange = { noteText = it },
+            label = { Text("Keterangan atau Tujuan Donasi") },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Button(
+            onClick = {
+                val amt = amountText.toDoubleOrNull() ?: 0.0
+                if (donorName.isNotBlank() && amt > 0.0) {
+                    viewModel.editVoluntaryPayment(
+                        id = payment.id,
+                        donorName = donorName,
+                        amount = amt,
+                        dateMs = paymentDateMs,
+                        timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(paymentDateMs)),
+                        note = noteText,
+                        isCancelled = payment.isCancelled
+                    )
+                }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+        ) {
+            Text("Simpan Perubahan", fontWeight = FontWeight.Bold, color = Color.White)
+        }
+
+        Button(
+            onClick = {
+                viewModel.deleteVoluntaryPayment(payment)
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+        ) {
+            Icon(Icons.Default.Delete, contentDescription = null, tint = Color.White)
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Hapus Transaksi", fontWeight = FontWeight.Bold, color = Color.White)
         }
     }
 }

@@ -61,6 +61,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedMemberId = MutableStateFlow<Int?>(null)
     val selectedMemberId: StateFlow<Int?> = _selectedMemberId.asStateFlow()
 
+    private val _selectedVoluntaryPayment = MutableStateFlow<VoluntaryDuesPaymentEntity?>(null)
+    val selectedVoluntaryPayment: StateFlow<VoluntaryDuesPaymentEntity?> = _selectedVoluntaryPayment.asStateFlow()
+
+    fun selectVoluntaryPayment(payment: VoluntaryDuesPaymentEntity?) {
+        _selectedVoluntaryPayment.value = payment
+    }
+
     // Dynamic filtering periods for reports and lists
     val currentYear = Calendar.getInstance().get(Calendar.YEAR)
     val currentMonth = Calendar.getInstance().get(Calendar.MONTH) + 1 // 1-12
@@ -292,13 +299,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addVoluntaryPayment(donorName: String, amount: Double, dateMs: Long, timeStr: String, note: String) {
         viewModelScope.launch {
             if (donorName.isBlank()) return@launch
+            val cal = java.util.Calendar.getInstance().apply { timeInMillis = dateMs }
+            val rMonth = cal.get(java.util.Calendar.MONTH) + 1
+            val rYear = cal.get(java.util.Calendar.YEAR)
             repository.insertVoluntaryPayment(
                 VoluntaryDuesPaymentEntity(
                     donorName = donorName.trim(),
                     amountPaid = amount,
                     paymentDate = dateMs,
                     paymentTime = timeStr.trim(),
-                    note = note.trim()
+                    note = note.trim(),
+                    isCancelled = false,
+                    reportMonth = rMonth,
+                    reportYear = rYear
                 )
             )
             setSubScreen(SubScreen.NONE)
@@ -308,6 +321,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun editVoluntaryPayment(id: Int, donorName: String, amount: Double, dateMs: Long, timeStr: String, note: String, isCancelled: Boolean = false) {
         viewModelScope.launch {
             if (donorName.isBlank()) return@launch
+            val cal = java.util.Calendar.getInstance().apply { timeInMillis = dateMs }
+            val rMonth = cal.get(java.util.Calendar.MONTH) + 1
+            val rYear = cal.get(java.util.Calendar.YEAR)
             repository.updateVoluntaryPayment(
                 VoluntaryDuesPaymentEntity(
                     id = id,
@@ -316,9 +332,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     paymentDate = dateMs,
                     paymentTime = timeStr.trim(),
                     note = note.trim(),
-                    isCancelled = isCancelled
+                    isCancelled = isCancelled,
+                    reportMonth = rMonth,
+                    reportYear = rYear
                 )
             )
+            setSubScreen(SubScreen.NONE)
+        }
+    }
+
+    fun deleteVoluntaryPayment(payment: VoluntaryDuesPaymentEntity) {
+        viewModelScope.launch {
+            repository.deleteVoluntaryPayment(payment)
             setSubScreen(SubScreen.NONE)
         }
     }
@@ -445,6 +470,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val _refreshTrigger = MutableStateFlow(0L)
+    val refreshTrigger: StateFlow<Long> = _refreshTrigger.asStateFlow()
+
+    fun refreshReports() {
+        _refreshTrigger.value = System.currentTimeMillis()
+    }
+
     // Combined live data computation for Special Payment Report (Anggota Sudah Membayar)
     val specialPaymentReportState: StateFlow<Pair<List<PaymentReportItem>, SpecialReportSummary>> = combine(
         selectedMonth,
@@ -453,7 +485,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         reportFilterType,
         members,
         mandatoryPayments,
-        voluntaryPayments
+        voluntaryPayments,
+        refreshTrigger
     ) { flows ->
         val month = flows[0] as Int
         val year = flows[1] as Int
@@ -465,6 +498,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val mandatoryList = flows[5] as List<MandatoryDuesPaymentEntity>
         @Suppress("UNCHECKED_CAST")
         val voluntaryList = flows[6] as List<VoluntaryDuesPaymentEntity>
+        // flows[7] is the refresh trigger, which forces recompute of the state flow when updated
         
         // Month name helper
         val monthName = getIndonesianMonthName(month)
@@ -473,25 +507,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val currentPeriodMandatory = mandatoryList.filter { !it.isCancelled && it.month == month && it.year == year }
         val currentPeriodVoluntary = voluntaryList.filter { !it.isCancelled && isDateInPeriod(it.paymentDate, month, year) }
 
-        // Compute items per member
+        // Compute items per member / donor
         val reportItems = mutableListOf<PaymentReportItem>()
-        var itemCounter = 1
 
-        val allCandidateMembers = memberList.filter { it.status == "Aktif" || currentPeriodMandatory.any { p -> p.memberId == it.id } }
+        // 1. Collect members who are active OR paid in this period
+        val activeOrPaidMembers = memberList.filter { it.status == "Aktif" || currentPeriodMandatory.any { p -> p.memberId == it.id } }
 
-        for (member in allCandidateMembers) {
-            // Check if member matches search query
-            if (search.isNotBlank() && !member.name.contains(search, ignoreCase = true)) {
+        // 2. Group voluntary payments in this period by donor name (trimmed, case-insensitive)
+        val voluntaryByDonor = currentPeriodVoluntary.groupBy { it.donorName.trim().lowercase() }
+
+        // 3. Collect all unique names (combining member names and voluntary donor names)
+        val memberNamesLower = activeOrPaidMembers.map { it.name.trim().lowercase() }
+        val allNamesLower = (memberNamesLower + voluntaryByDonor.keys).distinct()
+
+        for (nameKey in allNamesLower) {
+            // Find member if exists
+            val member = activeOrPaidMembers.find { it.name.trim().lowercase() == nameKey }
+            
+            // Determine display name
+            val displayName = member?.name ?: (voluntaryByDonor[nameKey]?.firstOrNull()?.donorName ?: nameKey)
+
+            // Check if matches search query
+            if (search.isNotBlank() && !displayName.contains(search, ignoreCase = true)) {
                 continue
             }
 
-            val memberMandatoryPayments = currentPeriodMandatory.filter { it.memberId == member.id }
+            // Calculate mandatory dues
+            val memberMandatoryPayments = if (member != null) {
+                currentPeriodMandatory.filter { it.memberId == member.id }
+            } else {
+                emptyList()
+            }
             val memberMandatoryTotal = memberMandatoryPayments.sumOf { it.amountPaid }
 
-            val memberVoluntaryPayments = currentPeriodVoluntary.filter { it.donorName.equals(member.name, ignoreCase = true) }
+            // Calculate voluntary dues
+            val memberVoluntaryPayments = voluntaryByDonor[nameKey] ?: emptyList()
             val memberVoluntaryTotal = memberVoluntaryPayments.sumOf { it.amountPaid }
 
-            // Skip if no payment has occurred in this period
+            // Skip if no payments occurred in this period
             if (memberMandatoryTotal == 0.0 && memberVoluntaryTotal == 0.0) {
                 continue
             }
@@ -505,7 +558,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 else -> "Sukarela Saja"
             }
 
-            // Filter on billing status
+            // Filter on billing status selection
             if (filter == "Iuran Wajib" && !hasMandatory) continue
             if (filter == "Iuran Sukarela" && !hasVoluntary) continue
             if (filter == "Keduanya" && (!hasMandatory || !hasVoluntary)) continue
@@ -525,7 +578,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             reportItems.add(
                 PaymentReportItem(
                     nomor = 0, // Assigned later after filtering is completed
-                    name = member.name,
+                    name = displayName,
                     mandatoryPaid = memberMandatoryTotal,
                     voluntaryPaid = memberVoluntaryTotal,
                     totalPaid = memberMandatoryTotal + memberVoluntaryTotal,

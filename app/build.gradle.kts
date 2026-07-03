@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.stekerhitam.uunydm"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 2
+    versionName = "1.2"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -59,6 +59,15 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+}
+
+androidComponents {
+  onVariants { variant ->
+    variant.outputs.forEach { output ->
+      val impl = output as? com.android.build.api.variant.impl.VariantOutputImpl
+      impl?.outputFileName?.set("Steker-App-v1.2.apk")
+    }
+  }
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files
