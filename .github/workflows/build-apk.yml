@@ -8,8 +8,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Ambil source code
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependency web
+        run: npm install
+
+      - name: Build aplikasi web
+        run: npm run build
+
+      - name: Install Capacitor
+        run: npm install @capacitor/core @capacitor/cli @capacitor/android
+
+      - name: Buat konfigurasi Capacitor
+        run: |
+          npx cap init "Steker App" "com.stekerhitam.app" --web-dir=dist
+          npx cap add android
+          npx cap sync android
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -17,19 +37,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-
-      - name: Install dependencies
-        run: flutter pub get
-
       - name: Build APK
-        run: flutter build apk --release
+        run: |
+          cd android
+          ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Steker-App-v1.1-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
