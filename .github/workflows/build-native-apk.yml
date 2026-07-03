@@ -1,4 +1,4 @@
-name: Build Steker App APK
+name: Build Steker App APK v1.4
 
 on:
   workflow_dispatch:
@@ -38,8 +38,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Steker-App-v1.3-APK
+          name: Steker-App-v1.4-APK
           path: |
             **/build/outputs/apk/debug/*.apk
-            **/build/outputs/apk/release/*.apk
           if-no-files-found: error
