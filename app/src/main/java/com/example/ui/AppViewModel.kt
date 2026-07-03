@@ -29,7 +29,7 @@ enum class AppTab {
 
 enum class SubScreen {
     NONE,
-    ADD_MEMBER, EDIT_MEMBER, MEMBER_PROFILE,
+    ADD_MEMBER, EDIT_MEMBER, MEMBER_PROFILE, ADD_MEMBER_PAYMENT,
     ADD_MANDATORY, EDIT_MANDATORY,
     ADD_VOLUNTARY, EDIT_VOLUNTARY,
     ADD_OTHER_INCOME, EDIT_OTHER_INCOME,
@@ -274,6 +274,59 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
             setSubScreen(SubScreen.NONE)
+        }
+    }
+
+    fun addCombinedPayment(
+        memberId: Int,
+        dateMs: Long,
+        isMandatorySelected: Boolean,
+        mandatoryMonth: Int,
+        mandatoryYear: Int,
+        mandatoryAmount: Double,
+        mandatoryNote: String,
+        isVoluntarySelected: Boolean,
+        voluntaryAmount: Double,
+        voluntaryNote: String,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            val member = members.value.find { it.id == memberId } ?: return@launch
+            
+            if (isMandatorySelected && mandatoryAmount > 0.0) {
+                repository.insertMandatoryPayment(
+                    MandatoryDuesPaymentEntity(
+                        memberId = memberId,
+                        memberName = member.name,
+                        month = mandatoryMonth,
+                        year = mandatoryYear,
+                        amountPaid = mandatoryAmount,
+                        paymentDate = dateMs,
+                        note = mandatoryNote
+                    )
+                )
+            }
+            
+            if (isVoluntarySelected && voluntaryAmount > 0.0) {
+                val cal = java.util.Calendar.getInstance().apply { timeInMillis = dateMs }
+                val rMonth = cal.get(java.util.Calendar.MONTH) + 1
+                val rYear = cal.get(java.util.Calendar.YEAR)
+                val timeStr = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(dateMs))
+                repository.insertVoluntaryPayment(
+                    VoluntaryDuesPaymentEntity(
+                        memberId = memberId,
+                        donorName = member.name,
+                        amountPaid = voluntaryAmount,
+                        paymentDate = dateMs,
+                        paymentTime = timeStr,
+                        note = voluntaryNote,
+                        isCancelled = false,
+                        reportMonth = rMonth,
+                        reportYear = rYear
+                    )
+                )
+            }
+            onSuccess()
         }
     }
 

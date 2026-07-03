@@ -242,7 +242,11 @@ fun MainShellScreen(viewModel: AppViewModel) {
 
     // Back button handling
     BackHandler(enabled = subScreen != SubScreen.NONE) {
-        viewModel.setSubScreen(SubScreen.NONE)
+        if (subScreen == SubScreen.ADD_MEMBER_PAYMENT) {
+            viewModel.setSubScreen(SubScreen.MEMBER_PROFILE)
+        } else {
+            viewModel.setSubScreen(SubScreen.NONE)
+        }
     }
 
     Scaffold(
@@ -270,6 +274,7 @@ fun MainShellScreen(viewModel: AppViewModel) {
                     SubScreen.ADD_MEMBER -> AddMemberScreen(viewModel)
                     SubScreen.EDIT_MEMBER -> EditMemberScreen(viewModel)
                     SubScreen.MEMBER_PROFILE -> MemberProfileScreen(viewModel)
+                    SubScreen.ADD_MEMBER_PAYMENT -> AddMemberPaymentScreen(viewModel)
                     SubScreen.ADD_MANDATORY -> AddMandatoryScreen(viewModel)
                     SubScreen.ADD_VOLUNTARY -> AddVoluntaryScreen(viewModel)
                     SubScreen.EDIT_VOLUNTARY -> EditVoluntaryScreen(viewModel)
@@ -364,6 +369,7 @@ fun SubHeader(viewModel: AppViewModel) {
         SubScreen.ADD_MEMBER -> "Tambah Anggota"
         SubScreen.EDIT_MEMBER -> "Edit Anggota"
         SubScreen.MEMBER_PROFILE -> "Profil Anggota"
+        SubScreen.ADD_MEMBER_PAYMENT -> "Tambah Pembayaran"
         SubScreen.ADD_MANDATORY -> "Tambah Iuran Wajib"
         SubScreen.ADD_VOLUNTARY -> "Tambah Iuran Sukarela"
         SubScreen.EDIT_VOLUNTARY -> "Edit Iuran Sukarela"
@@ -384,7 +390,13 @@ fun SubHeader(viewModel: AppViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
-                onClick = { viewModel.setSubScreen(SubScreen.NONE) },
+                onClick = {
+                    if (subScreen == SubScreen.ADD_MEMBER_PAYMENT) {
+                        viewModel.setSubScreen(SubScreen.MEMBER_PROFILE)
+                    } else {
+                        viewModel.setSubScreen(SubScreen.NONE)
+                    }
+                },
                 modifier = Modifier
                     .size(40.dp)
                     .clip(RoundedCornerShape(20.dp))
@@ -1155,18 +1167,16 @@ fun MemberProfileScreen(viewModel: AppViewModel) {
 
     // Confirmation Dialog
     if (paymentToDelete != null) {
+        val p = paymentToDelete!!
         AlertDialog(
             onDismissRequest = { paymentToDelete = null },
             title = { Text("Konfirmasi Hapus", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Hapus transaksi iuran sukarela ini? Saldo kas dan laporan akan diperbarui otomatis.", color = Color.LightGray) },
+            text = { Text("Hapus iuran sukarela dari ${member.name} sebesar ${formatRupiah(p.amountPaid)}? Saldo kas, riwayat anggota, dan laporan akan diperbarui.", color = Color.LightGray) },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val p = paymentToDelete
-                        if (p != null) {
-                            viewModel.deleteVoluntaryPayment(p)
-                            Toast.makeText(context, "Riwayat iuran sukarela berhasil dihapus dan saldo telah diperbarui.", Toast.LENGTH_LONG).show()
-                        }
+                        viewModel.deleteVoluntaryPayment(p)
+                        Toast.makeText(context, "Iuran sukarela berhasil dihapus.", Toast.LENGTH_LONG).show()
                         paymentToDelete = null
                     }
                 ) {
@@ -1276,11 +1286,19 @@ fun MemberProfileScreen(viewModel: AppViewModel) {
                     }
                 } else if (member.status == "Aktif") {
                     Button(
+                        onClick = { viewModel.setSubScreen(SubScreen.ADD_MEMBER_PAYMENT) },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.weight(1.2f)
+                    ) {
+                        Text("Tambah Pembayaran", color = Color.White, fontSize = 12.sp)
+                    }
+
+                    Button(
                         onClick = { viewModel.deactivateMember(member) },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(0.8f)
                     ) {
-                        Text("Nonaktifkan", color = Color.White)
+                        Text("Nonaktifkan", color = Color.White, fontSize = 12.sp)
                     }
                 } else {
                     Button(
@@ -1675,12 +1693,27 @@ fun TransactionListItem(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Action buttons row (Toggle Cancel and Delete)
+            // Action buttons row (Toggle Cancel, Edit, and Delete)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (onEdit != null) {
+                    TextButton(
+                        onClick = onEdit,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text(
+                            text = "Edit",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+
                 if (onDelete != null) {
                     TextButton(
                         onClick = onDelete,
@@ -3242,6 +3275,376 @@ fun EditMemberScreen(viewModel: AppViewModel) {
 }
 
 @Composable
+fun AddMemberPaymentScreen(viewModel: AppViewModel) {
+    val profileData by viewModel.selectedMemberProfile.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    if (profileData == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
+    val member = profileData!!.first
+
+    // Local states
+    var paymentDateMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    val sdf = remember { java.text.SimpleDateFormat("dd MMMM yyyy", java.util.Locale("id", "ID")) }
+    val dateStr = sdf.format(java.util.Date(paymentDateMs))
+
+    // Payment Type selections
+    var isMandatoryChecked by remember { mutableStateOf(true) }
+    var isVoluntaryChecked by remember { mutableStateOf(false) }
+
+    // Mandatory Dues local states
+    var mandatoryAmountText by remember { mutableStateOf("10000") }
+    var selectedMonth by remember { mutableStateOf(Calendar.getInstance().get(Calendar.MONTH) + 1) }
+    var selectedYear by remember { mutableStateOf(Calendar.getInstance().get(Calendar.YEAR)) }
+    var mandatoryNoteText by remember { mutableStateOf("") }
+
+    // Voluntary Dues local states
+    var voluntaryAmountText by remember { mutableStateOf("") }
+    var voluntaryNoteText by remember { mutableStateOf("") }
+
+    // UI structure
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Nama Anggota (Read-only)
+        OutlinedTextField(
+            value = member.name,
+            onValueChange = {},
+            label = { Text("Nama Anggota") },
+            readOnly = true,
+            enabled = false,
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                disabledTextColor = Color.White,
+                disabledBorderColor = CharcoalBorder,
+                disabledLabelColor = Color.Gray
+            )
+        )
+
+        // Tanggal Pembayaran (Editable with DatePicker)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val calendar = Calendar.getInstance().apply { timeInMillis = paymentDateMs }
+                    android.app.DatePickerDialog(
+                        context,
+                        { _, year, monthOfYear, dayOfMonth ->
+                            val selectedCal = Calendar.getInstance().apply {
+                                set(Calendar.YEAR, year)
+                                set(Calendar.MONTH, monthOfYear)
+                                set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                            }
+                            paymentDateMs = selectedCal.timeInMillis
+                        },
+                        calendar.get(Calendar.YEAR),
+                        calendar.get(Calendar.MONTH),
+                        calendar.get(Calendar.DAY_OF_MONTH)
+                    ).show()
+                }
+        ) {
+            OutlinedTextField(
+                value = dateStr,
+                onValueChange = {},
+                label = { Text("Tanggal Pembayaran") },
+                readOnly = true,
+                enabled = false,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    disabledTextColor = Color.White,
+                    disabledBorderColor = CharcoalBorder,
+                    disabledLabelColor = Color.Gray
+                ),
+                trailingIcon = {
+                    Icon(Icons.Default.Event, contentDescription = "Pilih Tanggal", tint = Color.White)
+                }
+            )
+        }
+
+        // Pilihan Jenis Pembayaran
+        Text(
+            text = "Jenis Pembayaran",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Checkbox/Card for Iuran Wajib
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isMandatoryChecked) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else CharcoalSurface
+                ),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (isMandatoryChecked) MaterialTheme.colorScheme.primary else CharcoalBorder
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { isMandatoryChecked = !isMandatoryChecked }
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Checkbox(
+                        checked = isMandatoryChecked,
+                        onCheckedChange = { isMandatoryChecked = it },
+                        colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                    )
+                    Text("Iuran Wajib", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                }
+            }
+
+            // Checkbox/Card for Iuran Sukarela
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isVoluntaryChecked) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else CharcoalSurface
+                ),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (isVoluntaryChecked) MaterialTheme.colorScheme.primary else CharcoalBorder
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { isVoluntaryChecked = !isVoluntaryChecked }
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Checkbox(
+                        checked = isVoluntaryChecked,
+                        onCheckedChange = { isVoluntaryChecked = it },
+                        colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                    )
+                    Text("Iuran Sukarela", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                }
+            }
+        }
+
+        // Detail Iuran Wajib (If Selected)
+        if (isMandatoryChecked) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CharcoalSurface),
+                border = BorderStroke(1.dp, CharcoalBorder),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "DETAIL IURAN WAJIB",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    // Month and Year Pickers Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Month Picker
+                        var isMonthExpanded by remember { mutableStateOf(false) }
+                        Box(modifier = Modifier.weight(1f)) {
+                            Button(
+                                onClick = { isMonthExpanded = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = CharcoalDark),
+                                modifier = Modifier.fillMaxWidth(),
+                                border = BorderStroke(1.dp, CharcoalBorder),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(viewModel.getIndonesianMonthName(selectedMonth), color = Color.White, fontSize = 12.sp)
+                            }
+                            DropdownMenu(
+                                expanded = isMonthExpanded,
+                                onDismissRequest = { isMonthExpanded = false },
+                                modifier = Modifier.background(CharcoalSurface)
+                            ) {
+                                (1..12).forEach { m ->
+                                    DropdownMenuItem(
+                                        text = { Text(viewModel.getIndonesianMonthName(m), color = Color.White) },
+                                        onClick = {
+                                            selectedMonth = m
+                                            isMonthExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Year Picker
+                        var isYearExpanded by remember { mutableStateOf(false) }
+                        Box(modifier = Modifier.weight(1f)) {
+                            Button(
+                                onClick = { isYearExpanded = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = CharcoalDark),
+                                modifier = Modifier.fillMaxWidth(),
+                                border = BorderStroke(1.dp, CharcoalBorder),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(selectedYear.toString(), color = Color.White, fontSize = 12.sp)
+                            }
+                            DropdownMenu(
+                                expanded = isYearExpanded,
+                                onDismissRequest = { isYearExpanded = false },
+                                modifier = Modifier.background(CharcoalSurface)
+                            ) {
+                                listOf(2025, 2026, 2027, 2028).forEach { y ->
+                                    DropdownMenuItem(
+                                        text = { Text(y.toString(), color = Color.White) },
+                                        onClick = {
+                                            selectedYear = y
+                                            isYearExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Mandatory Amount Input
+                    OutlinedTextField(
+                        value = mandatoryAmountText,
+                        onValueChange = { mandatoryAmountText = it },
+                        label = { Text("Nominal Iuran Wajib") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                    )
+
+                    // Mandatory Note (Optional)
+                    OutlinedTextField(
+                        value = mandatoryNoteText,
+                        onValueChange = { mandatoryNoteText = it },
+                        label = { Text("Keterangan Opsional") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                    )
+                }
+            }
+        }
+
+        // Detail Iuran Sukarela (If Selected)
+        if (isVoluntaryChecked) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CharcoalSurface),
+                border = BorderStroke(1.dp, CharcoalBorder),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "DETAIL IURAN SUKARELA",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    // Voluntary Amount Input
+                    OutlinedTextField(
+                        value = voluntaryAmountText,
+                        onValueChange = { voluntaryAmountText = it },
+                        label = { Text("Nominal Iuran Sukarela") },
+                        placeholder = { Text("Isi nominal iuran sukarela...") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                    )
+
+                    // Voluntary Note (Optional)
+                    OutlinedTextField(
+                        value = voluntaryNoteText,
+                        onValueChange = { voluntaryNoteText = it },
+                        label = { Text("Keterangan atau Tujuan Donasi (Opsional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Save Button Validation
+        val isFormValid = remember(isMandatoryChecked, isVoluntaryChecked, mandatoryAmountText, voluntaryAmountText) {
+            if (!isMandatoryChecked && !isVoluntaryChecked) {
+                false
+            } else {
+                val mandatoryOk = !isMandatoryChecked || (mandatoryAmountText.toDoubleOrNull() ?: 0.0) > 0.0
+                val voluntaryOk = !isVoluntaryChecked || (voluntaryAmountText.toDoubleOrNull() ?: 0.0) > 0.0
+                mandatoryOk && voluntaryOk
+            }
+        }
+
+        Button(
+            onClick = {
+                val mAmount = if (isMandatoryChecked) (mandatoryAmountText.toDoubleOrNull() ?: 0.0) else 0.0
+                val vAmount = if (isVoluntaryChecked) (voluntaryAmountText.toDoubleOrNull() ?: 0.0) else 0.0
+
+                viewModel.addCombinedPayment(
+                    memberId = member.id,
+                    dateMs = paymentDateMs,
+                    isMandatorySelected = isMandatoryChecked,
+                    mandatoryMonth = selectedMonth,
+                    mandatoryYear = selectedYear,
+                    mandatoryAmount = mAmount,
+                    mandatoryNote = mandatoryNoteText,
+                    isVoluntarySelected = isVoluntaryChecked,
+                    voluntaryAmount = vAmount,
+                    voluntaryNote = voluntaryNoteText,
+                    onSuccess = {
+                        Toast.makeText(context, "Pembayaran berhasil disimpan.", Toast.LENGTH_SHORT).show()
+                        viewModel.setSubScreen(SubScreen.MEMBER_PROFILE)
+                    }
+                )
+            },
+            enabled = isFormValid,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isFormValid) MaterialTheme.colorScheme.primary else Color.Gray,
+                disabledContainerColor = Color.Gray.copy(alpha = 0.5f)
+            ),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+        ) {
+            Text(
+                text = "Simpan Pembayaran",
+                fontWeight = FontWeight.Bold,
+                color = if (isFormValid) Color.White else Color.LightGray
+            )
+        }
+    }
+}
+
+@Composable
 fun AddMandatoryScreen(viewModel: AppViewModel) {
     val membersList by viewModel.members.collectAsStateWithLifecycle()
     val activeMembers = membersList.filter { it.status == "Aktif" }
@@ -3404,9 +3807,6 @@ fun AddVoluntaryScreen(viewModel: AppViewModel) {
     val activeMembers = remember(membersList) { membersList.filter { it.status == "Aktif" } }
 
     var selectedMemberId by remember { mutableStateOf(0) }
-    var memberSearchQuery by remember { mutableStateOf("") }
-    var isDropdownExpanded by remember { mutableStateOf(false) }
-
     var amountText by remember { mutableStateOf("") }
     var noteText by remember { mutableStateOf("") }
     var paymentDateMs by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -3443,60 +3843,44 @@ fun AddVoluntaryScreen(viewModel: AppViewModel) {
                 )
             }
         } else {
-            // Searchable Dropdown Container
-            Box(modifier = Modifier.fillMaxWidth()) {
+            var isDialogShown by remember { mutableStateOf(false) }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isDialogShown = true }
+            ) {
                 OutlinedTextField(
-                    value = if (isDropdownExpanded) memberSearchQuery else (selectedMem?.name ?: "Pilih Anggota Aktif..."),
-                    onValueChange = {
-                        memberSearchQuery = it
-                        isDropdownExpanded = true
-                    },
+                    value = selectedMem?.name ?: "Pilih Anggota Aktif...",
+                    onValueChange = {},
                     label = { Text("Pilih Anggota Aktif") },
-                    placeholder = { Text("Ketik untuk mencari nama...") },
-                    singleLine = true,
+                    readOnly = true,
+                    enabled = false,
                     modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledTextColor = Color.White,
+                        disabledBorderColor = CharcoalBorder,
+                        disabledLabelColor = Color.Gray
+                    ),
                     trailingIcon = {
-                        IconButton(onClick = { isDropdownExpanded = !isDropdownExpanded }) {
-                            Icon(
-                                imageVector = if (isDropdownExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                                contentDescription = "Toggle Dropdown",
-                                tint = Color.White
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Pilih Anggota",
+                            tint = Color.White
+                        )
                     }
                 )
+            }
 
-                val filteredMembers = activeMembers.filter {
-                    it.name.contains(memberSearchQuery, ignoreCase = true)
-                }
-
-                DropdownMenu(
-                    expanded = isDropdownExpanded,
-                    onDismissRequest = { isDropdownExpanded = false },
-                    modifier = Modifier
-                        .fillMaxWidth(0.9f)
-                        .background(CharcoalSurface)
-                        .border(1.dp, CharcoalBorder, RoundedCornerShape(8.dp))
-                ) {
-                    if (filteredMembers.isEmpty()) {
-                        DropdownMenuItem(
-                            text = { Text("Tidak ada anggota aktif yang cocok", color = Color.Gray) },
-                            onClick = {}
-                        )
-                    } else {
-                        filteredMembers.take(8).forEach { m ->
-                            DropdownMenuItem(
-                                text = { Text(m.name, color = Color.White) },
-                                onClick = {
-                                    selectedMemberId = m.id
-                                    memberSearchQuery = m.name
-                                    isDropdownExpanded = false
-                                }
-                            )
-                        }
+            if (isDialogShown) {
+                MemberSelectionDialog(
+                    members = activeMembers,
+                    onDismiss = { isDialogShown = false },
+                    onSelect = { m ->
+                        selectedMemberId = m.id
+                        isDialogShown = false
                     }
-                }
+                )
             }
         }
 
@@ -3606,8 +3990,6 @@ fun EditVoluntaryScreen(viewModel: AppViewModel) {
         val fallback = if (existing == null) membersList.find { it.name.trim().lowercase() == payment.donorName.trim().lowercase() } else null
         mutableStateOf(existing?.id ?: fallback?.id ?: 0)
     }
-    var memberSearchQuery by remember(payment) { mutableStateOf("") }
-    var isDropdownExpanded by remember { mutableStateOf(false) }
 
     var amountText by remember(payment) { mutableStateOf(payment.amountPaid.toInt().toString()) }
     var noteText by remember(payment) { mutableStateOf(payment.note) }
@@ -3645,60 +4027,44 @@ fun EditVoluntaryScreen(viewModel: AppViewModel) {
                 )
             }
         } else {
-            // Searchable Dropdown Container
-            Box(modifier = Modifier.fillMaxWidth()) {
+            var isDialogShown by remember { mutableStateOf(false) }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isDialogShown = true }
+            ) {
                 OutlinedTextField(
-                    value = if (isDropdownExpanded) memberSearchQuery else (selectedMem?.name ?: "Pilih Anggota Aktif..."),
-                    onValueChange = {
-                        memberSearchQuery = it
-                        isDropdownExpanded = true
-                    },
+                    value = selectedMem?.name ?: "Pilih Anggota Aktif...",
+                    onValueChange = {},
                     label = { Text("Pilih Anggota Aktif") },
-                    placeholder = { Text("Ketik untuk mencari nama...") },
-                    singleLine = true,
+                    readOnly = true,
+                    enabled = false,
                     modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledTextColor = Color.White,
+                        disabledBorderColor = CharcoalBorder,
+                        disabledLabelColor = Color.Gray
+                    ),
                     trailingIcon = {
-                        IconButton(onClick = { isDropdownExpanded = !isDropdownExpanded }) {
-                            Icon(
-                                imageVector = if (isDropdownExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                                contentDescription = "Toggle Dropdown",
-                                tint = Color.White
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Pilih Anggota",
+                            tint = Color.White
+                        )
                     }
                 )
+            }
 
-                val filteredMembers = activeMembers.filter {
-                    it.name.contains(memberSearchQuery, ignoreCase = true)
-                }
-
-                DropdownMenu(
-                    expanded = isDropdownExpanded,
-                    onDismissRequest = { isDropdownExpanded = false },
-                    modifier = Modifier
-                        .fillMaxWidth(0.9f)
-                        .background(CharcoalSurface)
-                        .border(1.dp, CharcoalBorder, RoundedCornerShape(8.dp))
-                ) {
-                    if (filteredMembers.isEmpty()) {
-                        DropdownMenuItem(
-                            text = { Text("Tidak ada anggota aktif yang cocok", color = Color.Gray) },
-                            onClick = {}
-                        )
-                    } else {
-                        filteredMembers.take(8).forEach { m ->
-                            DropdownMenuItem(
-                                text = { Text(m.name, color = Color.White) },
-                                onClick = {
-                                    selectedMemberId = m.id
-                                    memberSearchQuery = m.name
-                                    isDropdownExpanded = false
-                                }
-                            )
-                        }
+            if (isDialogShown) {
+                MemberSelectionDialog(
+                    members = activeMembers,
+                    onDismiss = { isDialogShown = false },
+                    onSelect = { m ->
+                        selectedMemberId = m.id
+                        isDialogShown = false
                     }
-                }
+                )
             }
         }
 
@@ -4011,4 +4377,137 @@ fun AddExpenseScreen(viewModel: AppViewModel) {
             Text("Simpan Pengeluaran", fontWeight = FontWeight.Bold, color = Color.White)
         }
     }
+}
+
+@Composable
+fun MemberSelectionDialog(
+    members: List<MemberEntity>,
+    onDismiss: () -> Unit,
+    onSelect: (MemberEntity) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredMembers = remember(searchQuery, members) {
+        members.filter { it.name.contains(searchQuery, ignoreCase = true) }
+            .sortedBy { it.name.lowercase() }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Pilih Anggota",
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontSize = 18.sp
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Search Bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Cari nama anggota...", color = Color.Gray) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = CharcoalBorder
+                    ),
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = "Cari", tint = Color.Gray)
+                    }
+                )
+
+                if (filteredMembers.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Tidak ada anggota cocok", color = Color.Gray, fontSize = 13.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(filteredMembers) { m ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(CharcoalSurface)
+                                    .clickable { onSelect(m) }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                // Avatar with initial
+                                val initial = m.name.firstOrNull()?.uppercase() ?: "?"
+                                val avatarBgColor = remember(m.id) {
+                                    val colors = listOf(
+                                        Color(0xFF1565C0), // Blue
+                                        Color(0xFF2E7D32), // Green
+                                        Color(0xFFC62828), // Red
+                                        Color(0xFFE65100), // Orange
+                                        Color(0xFF6A1B9A), // Purple
+                                        Color(0xFF00838F)  // Teal
+                                    )
+                                    colors[m.id % colors.size]
+                                }
+
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(avatarBgColor)
+                                ) {
+                                    Text(
+                                        text = initial,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        fontSize = 14.sp
+                                    )
+                                }
+
+                                Column {
+                                    Text(
+                                        text = m.name,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = m.whatsApp,
+                                        color = Color.Gray,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Batal", color = Color.White)
+            }
+        },
+        containerColor = CharcoalDark,
+        shape = RoundedCornerShape(14.dp)
+    )
 }

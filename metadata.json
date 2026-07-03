@@ -1,5 +1,5 @@
 {
-  "name": "Steker App v1.3",
+  "name": "Steker App v1.4",
   "description": "Satu Aplikasi untuk Semua Kebutuhan - Aplikasi pengelolaan data anggota dan keuangan organisasi Steker Hitam.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
