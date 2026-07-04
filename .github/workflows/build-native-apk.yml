@@ -1,4 +1,4 @@
-name: Build Steker App APK v1.4
+name: Build Steker App APK v1.5
 
 on:
   workflow_dispatch:
@@ -35,10 +35,13 @@ jobs:
       - name: Build APK Debug
         run: gradle assembleDebug
 
+      - name: Cari file APK
+        run: find . -type f -name "*.apk"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Steker-App-v1.4-APK
+          name: Steker-App-v1.5-APK
           path: |
             **/build/outputs/apk/debug/*.apk
           if-no-files-found: error
