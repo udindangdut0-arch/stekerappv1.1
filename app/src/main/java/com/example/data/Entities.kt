@@ -64,7 +64,15 @@ data class ExpenseEntity(
     val expenseDate: Long,
     val recipient: String,
     val note: String,
-    val isCancelled: Boolean = false
+    val isCancelled: Boolean = false,
+    val expenseTime: String = "",
+    val reportMonth: Int = 0,
+    val reportYear: Int = 0,
+    val recipientName: String = "",
+    val notes: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+    val memberId: Int = 0
 )
 
 @Entity(tableName = "agendas")

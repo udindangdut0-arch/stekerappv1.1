@@ -82,6 +82,9 @@ interface ExpenseDao {
 
     @Update
     suspend fun updateExpense(expense: ExpenseEntity)
+
+    @Delete
+    suspend fun deleteExpense(expense: ExpenseEntity)
 }
 
 @Dao

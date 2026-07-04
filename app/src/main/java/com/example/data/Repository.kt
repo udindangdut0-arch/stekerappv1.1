@@ -67,6 +67,10 @@ class Repository(private val db: AppDatabase) {
         db.expenseDao().updateExpense(expense)
     }
 
+    suspend fun deleteExpense(expense: ExpenseEntity) {
+        db.expenseDao().deleteExpense(expense)
+    }
+
     suspend fun insertAgenda(agenda: AgendaEntity): Long {
         return db.agendaDao().insertAgenda(agenda)
     }
@@ -159,7 +163,7 @@ class Repository(private val db: AppDatabase) {
         // Expenses
         sb.append("  \"expenses\": [\n")
         expenses.forEachIndexed { i, e ->
-            sb.append("    {\"id\":${e.id},\"category\":\"${escapeJson(e.category)}\",\"amount\":${e.amount},\"date\":${e.expenseDate},\"recipient\":\"${escapeJson(e.recipient)}\",\"note\":\"${escapeJson(e.note)}\",\"isCancelled\":${e.isCancelled}}")
+            sb.append("    {\"id\":${e.id},\"category\":\"${escapeJson(e.category)}\",\"amount\":${e.amount},\"date\":${e.expenseDate},\"recipient\":\"${escapeJson(e.recipient)}\",\"note\":\"${escapeJson(e.note)}\",\"isCancelled\":${e.isCancelled},\"expenseTime\":\"${escapeJson(e.expenseTime)}\",\"reportMonth\":${e.reportMonth},\"reportYear\":${e.reportYear},\"recipientName\":\"${escapeJson(e.recipientName)}\",\"notes\":\"${escapeJson(e.notes)}\",\"createdAt\":${e.createdAt},\"updatedAt\":${e.updatedAt},\"memberId\":${e.memberId}}")
             if (i < expenses.lastIndex) sb.append(",")
             sb.append("\n")
         }
@@ -178,11 +182,14 @@ class Repository(private val db: AppDatabase) {
         return sb.toString()
     }
 
-    // Restore data from JSON
-    suspend fun restoreDataFromJson(json: String): Boolean {
+    // Restore data from JSON with Overwrite vs. Merge modes
+    suspend fun restoreDataFromJson(json: String, overwrite: Boolean = true): Boolean {
         return try {
-            // Very simple parser using org.json.JSONObject (built into Android SDK, no external library required!)
+            // Verify this is a valid Steker App backup JSON
             val obj = org.json.JSONObject(json)
+            if (!obj.has("config") && !obj.has("members")) {
+                return false
+            }
             
             // 1. Config
             if (obj.has("config")) {
@@ -195,15 +202,16 @@ class Repository(private val db: AppDatabase) {
                 )
             }
 
-            // Clear and Restore table contents
+            // Restore table contents (Clear first if overwrite mode is active)
             db.runInTransaction {
-                // We will clear existing tables in transaction
-                db.openHelper.writableDatabase.execSQL("DELETE FROM members")
-                db.openHelper.writableDatabase.execSQL("DELETE FROM mandatory_dues")
-                db.openHelper.writableDatabase.execSQL("DELETE FROM voluntary_dues")
-                db.openHelper.writableDatabase.execSQL("DELETE FROM other_income")
-                db.openHelper.writableDatabase.execSQL("DELETE FROM expenses")
-                db.openHelper.writableDatabase.execSQL("DELETE FROM agendas")
+                if (overwrite) {
+                    db.openHelper.writableDatabase.execSQL("DELETE FROM members")
+                    db.openHelper.writableDatabase.execSQL("DELETE FROM mandatory_dues")
+                    db.openHelper.writableDatabase.execSQL("DELETE FROM voluntary_dues")
+                    db.openHelper.writableDatabase.execSQL("DELETE FROM other_income")
+                    db.openHelper.writableDatabase.execSQL("DELETE FROM expenses")
+                    db.openHelper.writableDatabase.execSQL("DELETE FROM agendas")
+                }
 
                 // 2. Members
                 if (obj.has("members")) {
@@ -262,9 +270,29 @@ class Repository(private val db: AppDatabase) {
                     val arr = obj.getJSONArray("expenses")
                     for (i in 0 until arr.length()) {
                         val e = arr.getJSONObject(i)
+                        val eDate = e.getLong("date")
+                        val cal = java.util.Calendar.getInstance().apply { timeInMillis = eDate }
+                        val defaultMonth = cal.get(java.util.Calendar.MONTH) + 1
+                        val defaultYear = cal.get(java.util.Calendar.YEAR)
                         db.openHelper.writableDatabase.execSQL(
-                            "INSERT OR REPLACE INTO expenses (id, category, amount, expenseDate, recipient, note, isCancelled) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            arrayOf(e.getInt("id"), e.getString("category"), e.getDouble("amount"), e.getLong("date"), e.getString("recipient"), e.getString("note"), if (e.getBoolean("isCancelled")) 1 else 0)
+                            "INSERT OR REPLACE INTO expenses (id, category, amount, expenseDate, recipient, note, isCancelled, expenseTime, reportMonth, reportYear, recipientName, notes, createdAt, updatedAt, memberId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            arrayOf(
+                                e.getInt("id"),
+                                e.getString("category"),
+                                e.getDouble("amount"),
+                                eDate,
+                                e.getString("recipient"),
+                                e.getString("note"),
+                                if (e.getBoolean("isCancelled")) 1 else 0,
+                                e.optString("expenseTime", ""),
+                                e.optInt("reportMonth", defaultMonth),
+                                e.optInt("reportYear", defaultYear),
+                                e.optString("recipientName", e.getString("recipient")),
+                                e.optString("notes", e.getString("note")),
+                                e.optLong("createdAt", eDate),
+                                e.optLong("updatedAt", eDate),
+                                e.optInt("memberId", 0)
+                            )
                         )
                     }
                 }

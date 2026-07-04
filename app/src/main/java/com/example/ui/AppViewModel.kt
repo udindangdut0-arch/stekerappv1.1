@@ -35,7 +35,8 @@ enum class SubScreen {
     ADD_OTHER_INCOME, EDIT_OTHER_INCOME,
     ADD_EXPENSE, EDIT_EXPENSE,
     ADD_AGENDA, EDIT_AGENDA,
-    SETTINGS
+    SETTINGS,
+    BACKUP_DATA
 }
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -66,6 +67,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectVoluntaryPayment(payment: VoluntaryDuesPaymentEntity?) {
         _selectedVoluntaryPayment.value = payment
+    }
+
+    private val _selectedExpense = MutableStateFlow<ExpenseEntity?>(null)
+    val selectedExpense: StateFlow<ExpenseEntity?> = _selectedExpense.asStateFlow()
+
+    fun selectExpense(expense: ExpenseEntity?) {
+        _selectedExpense.value = expense
     }
 
     // Dynamic filtering periods for reports and lists
@@ -439,23 +447,57 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // CRUD - EXPENSES
-    fun addExpense(category: String, amount: Double, dateMs: Long, recipient: String, note: String) {
+    fun addExpense(
+        category: String,
+        amount: Double,
+        dateMs: Long,
+        recipient: String,
+        note: String,
+        time: String = "",
+        memberId: Int = 0
+    ) {
         viewModelScope.launch {
+            val cal = Calendar.getInstance().apply { timeInMillis = dateMs }
+            val rMonth = cal.get(Calendar.MONTH) + 1
+            val rYear = cal.get(Calendar.YEAR)
             repository.insertExpense(
                 ExpenseEntity(
                     category = category,
                     amount = amount,
                     expenseDate = dateMs,
                     recipient = recipient.trim(),
-                    note = note.trim()
+                    note = note.trim(),
+                    isCancelled = false,
+                    expenseTime = time.trim(),
+                    reportMonth = rMonth,
+                    reportYear = rYear,
+                    recipientName = recipient.trim(),
+                    notes = note.trim(),
+                    createdAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis(),
+                    memberId = memberId
                 )
             )
             setSubScreen(SubScreen.NONE)
         }
     }
 
-    fun editExpense(id: Int, category: String, amount: Double, dateMs: Long, recipient: String, note: String, isCancelled: Boolean = false) {
+    fun editExpense(
+        id: Int,
+        category: String,
+        amount: Double,
+        dateMs: Long,
+        recipient: String,
+        note: String,
+        isCancelled: Boolean = false,
+        time: String = "",
+        memberId: Int = 0,
+        createdAt: Long = System.currentTimeMillis()
+    ) {
         viewModelScope.launch {
+            val cal = Calendar.getInstance().apply { timeInMillis = dateMs }
+            val rMonth = cal.get(Calendar.MONTH) + 1
+            val rYear = cal.get(Calendar.YEAR)
             repository.updateExpense(
                 ExpenseEntity(
                     id = id,
@@ -464,10 +506,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     expenseDate = dateMs,
                     recipient = recipient.trim(),
                     note = note.trim(),
-                    isCancelled = isCancelled
+                    isCancelled = isCancelled,
+                    expenseTime = time.trim(),
+                    reportMonth = rMonth,
+                    reportYear = rYear,
+                    recipientName = recipient.trim(),
+                    notes = note.trim(),
+                    createdAt = createdAt,
+                    updatedAt = System.currentTimeMillis(),
+                    memberId = memberId
                 )
             )
             setSubScreen(SubScreen.NONE)
+        }
+    }
+
+    fun deleteExpense(expense: ExpenseEntity) {
+        viewModelScope.launch {
+            repository.deleteExpense(expense)
         }
     }
 
@@ -520,9 +576,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun triggerLocalRestore(jsonString: String, onFinished: (Boolean) -> Unit) {
+    fun triggerLocalRestore(jsonString: String, overwrite: Boolean = true, onFinished: (Boolean) -> Unit) {
         viewModelScope.launch {
-            val result = repository.restoreDataFromJson(jsonString)
+            val result = repository.restoreDataFromJson(jsonString, overwrite)
+            if (result) {
+                refreshAllData()
+            }
             onFinished(result)
         }
     }

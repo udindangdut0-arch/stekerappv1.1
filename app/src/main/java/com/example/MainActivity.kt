@@ -126,7 +126,7 @@ fun PinLoginScreen(viewModel: AppViewModel) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Steker App v1.3",
+                text = "Steker App v1.5",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -142,7 +142,7 @@ fun PinLoginScreen(viewModel: AppViewModel) {
             )
 
             Text(
-                text = "Organisasi Steker Hitam",
+                text = "Steker Hitam",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold,
@@ -279,8 +279,10 @@ fun MainShellScreen(viewModel: AppViewModel) {
                     SubScreen.ADD_VOLUNTARY -> AddVoluntaryScreen(viewModel)
                     SubScreen.EDIT_VOLUNTARY -> EditVoluntaryScreen(viewModel)
                     SubScreen.ADD_EXPENSE -> AddExpenseScreen(viewModel)
+                    SubScreen.EDIT_EXPENSE -> EditExpenseScreen(viewModel)
                     SubScreen.ADD_OTHER_INCOME -> AddOtherIncomeScreen(viewModel)
                     SubScreen.SETTINGS -> SettingsScreen(viewModel)
+                    SubScreen.BACKUP_DATA -> BackupDataScreen(viewModel)
                     else -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Halaman tidak ditemukan") }
                 }
             } else {
@@ -374,8 +376,10 @@ fun SubHeader(viewModel: AppViewModel) {
         SubScreen.ADD_VOLUNTARY -> "Tambah Iuran Sukarela"
         SubScreen.EDIT_VOLUNTARY -> "Edit Iuran Sukarela"
         SubScreen.ADD_EXPENSE -> "Tambah Pengeluaran"
+        SubScreen.EDIT_EXPENSE -> "Edit Pengeluaran"
         SubScreen.ADD_OTHER_INCOME -> "Tambah Pemasukan Lain"
         SubScreen.SETTINGS -> "Pengaturan Aplikasi"
+        SubScreen.BACKUP_DATA -> "Backup & Pindah Data"
         else -> "Steker App"
     }
 
@@ -504,7 +508,7 @@ fun BerandaTabScreen(viewModel: AppViewModel) {
             ) {
                 Column {
                     Text(
-                        text = "Halo, Pengurus!",
+                        text = "Halo, Menyadik!",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -2123,6 +2127,8 @@ private fun isDateInPeriod(dateMs: Long, targetMonth: Int, targetYear: Int): Boo
 
 @Composable
 fun KasPengeluaranSubTab(viewModel: AppViewModel) {
+    val ctx = LocalContext.current
+    var expenseToDelete by remember { mutableStateOf<com.example.data.ExpenseEntity?>(null) }
     val totals by viewModel.totalsState.collectAsStateWithLifecycle()
     val mandatoryPayments by viewModel.mandatoryPayments.collectAsStateWithLifecycle()
     val voluntaryPayments by viewModel.voluntaryPayments.collectAsStateWithLifecycle()
@@ -2261,17 +2267,48 @@ fun KasPengeluaranSubTab(viewModel: AppViewModel) {
                             "Expense" -> {
                                 val original = expenses.find { it.id == item.id }
                                 if (original != null) {
-                                    viewModel.editExpense(original.id, original.category, original.amount, original.expenseDate, original.recipient, original.note, !original.isCancelled)
+                                    viewModel.editExpense(
+                                        id = original.id,
+                                        category = original.category,
+                                        amount = original.amount,
+                                        dateMs = original.expenseDate,
+                                        recipient = original.recipient,
+                                        note = original.note,
+                                        isCancelled = !original.isCancelled,
+                                        time = original.expenseTime,
+                                        memberId = original.memberId,
+                                        createdAt = original.createdAt
+                                    )
                                 }
                             }
                         }
                     },
-                    onEdit = if (item.tag == "Voluntary") {
+                    onEdit = when (item.tag) {
+                        "Voluntary" -> {
+                            {
+                                val original = voluntaryPayments.find { it.id == item.id }
+                                if (original != null) {
+                                    viewModel.selectVoluntaryPayment(original)
+                                    viewModel.setSubScreen(SubScreen.EDIT_VOLUNTARY)
+                                }
+                            }
+                        }
+                        "Expense" -> {
+                            {
+                                val original = expenses.find { it.id == item.id }
+                                if (original != null) {
+                                    viewModel.selectExpense(original)
+                                    viewModel.setSubScreen(SubScreen.EDIT_EXPENSE)
+                                }
+                            }
+                        }
+                        else -> null
+                    },
+                    onDelete = if (item.tag == "Expense") {
                         {
-                            val original = voluntaryPayments.find { it.id == item.id }
+                            val original = expenses.find { it.id == item.id }
                             if (original != null) {
-                                viewModel.selectVoluntaryPayment(original)
-                                viewModel.setSubScreen(SubScreen.EDIT_VOLUNTARY)
+                                expenseToDelete = original
                             }
                         }
                     } else null
@@ -2284,6 +2321,33 @@ fun KasPengeluaranSubTab(viewModel: AppViewModel) {
                 }
             }
         }
+    }
+
+    if (expenseToDelete != null) {
+        val exp = expenseToDelete!!
+        AlertDialog(
+            onDismissRequest = { expenseToDelete = null },
+            title = { Text("Konfirmasi Hapus", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text("Hapus pengeluaran sebesar ${formatRupiah(exp.amount)} untuk ${exp.recipient}? Saldo kas dan laporan akan diperbarui otomatis.", color = Color.LightGray) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteExpense(exp)
+                        expenseToDelete = null
+                        Toast.makeText(ctx, "Pengeluaran berhasil dihapus.", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Hapus", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { expenseToDelete = null }) {
+                    Text("Batal", color = Color.White)
+                }
+            },
+            containerColor = CharcoalDark,
+            shape = RoundedCornerShape(14.dp)
+        )
     }
 }
 
@@ -2797,9 +2861,9 @@ fun LainnyaTabScreen(viewModel: AppViewModel) {
                         contentScale = ContentScale.Crop
                     )
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text("Steker App v1.3", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Steker App v1.5", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Text("Satu Aplikasi untuk Semua Kebutuhan", fontSize = 11.sp, color = Color.LightGray)
-                    Text("Organisasi Steker Hitam", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text("Steker Hitam", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -2823,10 +2887,20 @@ fun LainnyaTabScreen(viewModel: AppViewModel) {
         // Settings Button
         item {
             LainnyaMenuItemCard(
-                title = "Pengaturan PIN & Backup Data",
-                description = "Ubah PIN, backup, restore database, dan ekspor.",
+                title = "Pengaturan PIN",
+                description = "Ubah PIN keamanan pengurus.",
                 icon = Icons.Default.Settings,
                 onClick = { viewModel.setSubScreen(SubScreen.SETTINGS) }
+            )
+        }
+
+        // Backup & Pindah Data Button
+        item {
+            LainnyaMenuItemCard(
+                title = "Backup & Pindah Data",
+                description = "Ekspor, impor, dan pindah data antar-ponsel secara offline.",
+                icon = Icons.Default.Backup,
+                onClick = { viewModel.setSubScreen(SubScreen.BACKUP_DATA) }
             )
         }
     }
@@ -4239,14 +4313,20 @@ fun AddOtherIncomeScreen(viewModel: AppViewModel) {
 
 @Composable
 fun AddExpenseScreen(viewModel: AppViewModel) {
+    val context = LocalContext.current
     val membersList by viewModel.members.collectAsStateWithLifecycle()
+    val activeMembers = remember(membersList) { membersList.filter { it.status == "Aktif" } }
+
     var selectedCategory by remember { mutableStateOf("Operasional") } // "Bantuan Sosial", "Kegiatan", "Konsumsi", "Operasional", "Lainnya"
     var amountText by remember { mutableStateOf("") }
     var recipient by remember { mutableStateOf("") }
     var noteText by remember { mutableStateOf("") }
+    var expenseDateMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    var expenseTime by remember { mutableStateOf("") }
+    var selectedMemberId by remember { mutableStateOf(0) }
 
     var isCategoryExpanded by remember { mutableStateOf(false) }
-    var isMemberDropdownExpanded by remember { mutableStateOf(false) }
+    var isMemberDialogShown by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -4297,6 +4377,90 @@ fun AddExpenseScreen(viewModel: AppViewModel) {
             colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
         )
 
+        // Tanggal Pengeluaran (Wajib Diisi, Default Hari Ini)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val calendar = Calendar.getInstance().apply { timeInMillis = expenseDateMs }
+                    android.app.DatePickerDialog(
+                        context,
+                        { _, year, monthOfYear, dayOfMonth ->
+                            val selectedCal = Calendar.getInstance().apply {
+                                set(Calendar.YEAR, year)
+                                set(Calendar.MONTH, monthOfYear)
+                                set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                            }
+                            expenseDateMs = selectedCal.timeInMillis
+                        },
+                        calendar.get(Calendar.YEAR),
+                        calendar.get(Calendar.MONTH),
+                        calendar.get(Calendar.DAY_OF_MONTH)
+                    ).show()
+                }
+        ) {
+            OutlinedTextField(
+                value = SimpleDateFormat("dd MMM yyyy", Locale("id", "ID")).format(Date(expenseDateMs)),
+                onValueChange = {},
+                label = { Text("Tanggal Pengeluaran (Wajib)") },
+                readOnly = true,
+                enabled = false,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    disabledTextColor = Color.White,
+                    disabledBorderColor = CharcoalBorder,
+                    disabledLabelColor = Color.Gray
+                ),
+                trailingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.CalendarToday,
+                        contentDescription = "Pilih Tanggal",
+                        tint = Color.White
+                    )
+                }
+            )
+        }
+
+        // Waktu Pengeluaran (Opsional)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val calendar = Calendar.getInstance()
+                    android.app.TimePickerDialog(
+                        context,
+                        { _, hourOfDay, minute ->
+                            expenseTime = String.format("%02d:%02d", hourOfDay, minute)
+                        },
+                        calendar.get(Calendar.HOUR_OF_DAY),
+                        calendar.get(Calendar.MINUTE),
+                        true
+                    ).show()
+                }
+        ) {
+            OutlinedTextField(
+                value = expenseTime,
+                onValueChange = { expenseTime = it },
+                label = { Text("Waktu Pengeluaran (Opsional)") },
+                placeholder = { Text("Klik ikon jam atau isi manual, misal 14:30") },
+                readOnly = true,
+                enabled = false,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    disabledTextColor = Color.White,
+                    disabledBorderColor = CharcoalBorder,
+                    disabledLabelColor = Color.Gray
+                ),
+                trailingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.AccessTime,
+                        contentDescription = "Pilih Waktu",
+                        tint = Color.White
+                    )
+                }
+            )
+        }
+
         // Recipient label and optional member selector
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(
@@ -4306,44 +4470,43 @@ fun AddExpenseScreen(viewModel: AppViewModel) {
             ) {
                 Text("Nama Penerima", fontSize = 12.sp, color = Color.Gray)
                 
-                if (membersList.isNotEmpty()) {
-                    Box {
-                        TextButton(
-                            onClick = { isMemberDropdownExpanded = true },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("Pilih Anggota Opsional", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-                        }
-                        DropdownMenu(
-                            expanded = isMemberDropdownExpanded,
-                            onDismissRequest = { isMemberDropdownExpanded = false },
-                            modifier = Modifier
-                                .fillMaxWidth(0.6f)
-                                .background(CharcoalSurface)
-                                .border(1.dp, CharcoalBorder, RoundedCornerShape(8.dp))
-                        ) {
-                            membersList.forEach { m ->
-                                DropdownMenuItem(
-                                    text = { Text(m.name, color = Color.White, fontSize = 11.sp) },
-                                    onClick = {
-                                        recipient = m.name
-                                        isMemberDropdownExpanded = false
-                                    }
-                                )
-                            }
-                        }
+                if (activeMembers.isNotEmpty()) {
+                    TextButton(
+                        onClick = { isMemberDialogShown = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text("Pilih Anggota Opsional", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
 
             OutlinedTextField(
                 value = recipient,
-                onValueChange = { recipient = it },
-                placeholder = { Text("Ketik nama bebas atau pilih anggota...") },
+                onValueChange = { 
+                    recipient = it
+                    // Reset member selection if user types something else
+                    if (selectedMemberId != 0) {
+                        val matchingMember = activeMembers.find { m -> m.name.equals(it, ignoreCase = true) }
+                        if (matchingMember == null) {
+                            selectedMemberId = 0
+                        }
+                    }
+                },
+                placeholder = { Text("Ketik nama bebas atau klik Pilih Anggota...") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                trailingIcon = if (selectedMemberId != 0) {
+                    {
+                        Text(
+                            text = "Anggota Terpilih",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                } else null
             )
         }
 
@@ -4362,10 +4525,15 @@ fun AddExpenseScreen(viewModel: AppViewModel) {
                     viewModel.addExpense(
                         category = selectedCategory,
                         amount = amt,
-                        dateMs = System.currentTimeMillis(),
+                        dateMs = expenseDateMs,
                         recipient = recipient,
-                        note = noteText
+                        note = noteText,
+                        time = expenseTime,
+                        memberId = selectedMemberId
                     )
+                    Toast.makeText(context, "Pengeluaran berhasil disimpan", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Mohon lengkapi nominal dan nama penerima", Toast.LENGTH_SHORT).show()
                 }
             },
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -4376,6 +4544,315 @@ fun AddExpenseScreen(viewModel: AppViewModel) {
         ) {
             Text("Simpan Pengeluaran", fontWeight = FontWeight.Bold, color = Color.White)
         }
+    }
+
+    if (isMemberDialogShown) {
+        MemberSelectionDialog(
+            members = activeMembers,
+            onDismiss = { isMemberDialogShown = false },
+            onSelect = { member ->
+                recipient = member.name
+                selectedMemberId = member.id
+                isMemberDialogShown = false
+            }
+        )
+    }
+}
+
+@Composable
+fun EditExpenseScreen(viewModel: AppViewModel) {
+    val context = LocalContext.current
+    val membersList by viewModel.members.collectAsStateWithLifecycle()
+    val activeMembers = remember(membersList) { membersList.filter { it.status == "Aktif" } }
+    val expense by viewModel.selectedExpense.collectAsStateWithLifecycle()
+
+    if (expense == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Tidak ada pengeluaran yang dipilih", color = Color.White)
+        }
+        return
+    }
+
+    val exp = expense!!
+
+    var selectedCategory by remember(exp) { mutableStateOf(exp.category) }
+    var amountText by remember(exp) { mutableStateOf(exp.amount.toLong().toString()) }
+    var recipient by remember(exp) { mutableStateOf(exp.recipientName.ifEmpty { exp.recipient }) }
+    var noteText by remember(exp) { mutableStateOf(exp.notes.ifEmpty { exp.note }) }
+    var expenseDateMs by remember(exp) { mutableStateOf(exp.expenseDate) }
+    var expenseTime by remember(exp) { mutableStateOf(exp.expenseTime) }
+    var selectedMemberId by remember(exp) { mutableStateOf(exp.memberId) }
+    var isCancelled by remember(exp) { mutableStateOf(exp.isCancelled) }
+
+    var isCategoryExpanded by remember { mutableStateOf(false) }
+    var isMemberDialogShown by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Category Selector
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { isCategoryExpanded = true },
+                colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, CharcoalBorder)
+            ) {
+                Text("Kategori: $selectedCategory", color = Color.White)
+            }
+
+            DropdownMenu(
+                expanded = isCategoryExpanded,
+                onDismissRequest = { isCategoryExpanded = false },
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .background(CharcoalSurface)
+            ) {
+                listOf("Bantuan Sosial", "Kegiatan", "Konsumsi", "Operasional", "Lainnya").forEach { c ->
+                    DropdownMenuItem(
+                        text = { Text(c, color = Color.White) },
+                        onClick = {
+                            selectedCategory = c
+                            isCategoryExpanded = false
+                        }
+                    )
+                }
+            }
+        }
+
+        OutlinedTextField(
+            value = amountText,
+            onValueChange = { amountText = it },
+            label = { Text("Nominal Pengeluaran") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+        )
+
+        // Tanggal Pengeluaran (Wajib Diisi, Editable)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val calendar = Calendar.getInstance().apply { timeInMillis = expenseDateMs }
+                    android.app.DatePickerDialog(
+                        context,
+                        { _, year, monthOfYear, dayOfMonth ->
+                            val selectedCal = Calendar.getInstance().apply {
+                                set(Calendar.YEAR, year)
+                                set(Calendar.MONTH, monthOfYear)
+                                set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                            }
+                            expenseDateMs = selectedCal.timeInMillis
+                        },
+                        calendar.get(Calendar.YEAR),
+                        calendar.get(Calendar.MONTH),
+                        calendar.get(Calendar.DAY_OF_MONTH)
+                    ).show()
+                }
+        ) {
+            OutlinedTextField(
+                value = SimpleDateFormat("dd MMM yyyy", Locale("id", "ID")).format(Date(expenseDateMs)),
+                onValueChange = {},
+                label = { Text("Tanggal Pengeluaran (Wajib)") },
+                readOnly = true,
+                enabled = false,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    disabledTextColor = Color.White,
+                    disabledBorderColor = CharcoalBorder,
+                    disabledLabelColor = Color.Gray
+                ),
+                trailingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.CalendarToday,
+                        contentDescription = "Pilih Tanggal",
+                        tint = Color.White
+                    )
+                }
+            )
+        }
+
+        // Waktu Pengeluaran (Opsional)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val calendar = Calendar.getInstance()
+                    android.app.TimePickerDialog(
+                        context,
+                        { _, hourOfDay, minute ->
+                            expenseTime = String.format("%02d:%02d", hourOfDay, minute)
+                        },
+                        calendar.get(Calendar.HOUR_OF_DAY),
+                        calendar.get(Calendar.MINUTE),
+                        true
+                    ).show()
+                }
+        ) {
+            OutlinedTextField(
+                value = expenseTime,
+                onValueChange = { expenseTime = it },
+                label = { Text("Waktu Pengeluaran (Opsional)") },
+                placeholder = { Text("Klik ikon jam atau isi manual, misal 14:30") },
+                readOnly = true,
+                enabled = false,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    disabledTextColor = Color.White,
+                    disabledBorderColor = CharcoalBorder,
+                    disabledLabelColor = Color.Gray
+                ),
+                trailingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.AccessTime,
+                        contentDescription = "Pilih Waktu",
+                        tint = Color.White
+                    )
+                }
+            )
+        }
+
+        // Recipient label and optional member selector
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Nama Penerima", fontSize = 12.sp, color = Color.Gray)
+                
+                if (activeMembers.isNotEmpty()) {
+                    TextButton(
+                        onClick = { isMemberDialogShown = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text("Pilih Anggota Opsional", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = recipient,
+                onValueChange = { 
+                    recipient = it
+                    // Reset member selection if user types something else
+                    if (selectedMemberId != 0) {
+                        val matchingMember = activeMembers.find { m -> m.name.equals(it, ignoreCase = true) }
+                        if (matchingMember == null) {
+                            selectedMemberId = 0
+                        }
+                    }
+                },
+                placeholder = { Text("Ketik nama bebas atau klik Pilih Anggota...") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                trailingIcon = if (selectedMemberId != 0) {
+                    {
+                        Text(
+                            text = "Anggota Terpilih",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                } else null
+            )
+        }
+
+        OutlinedTextField(
+            value = noteText,
+            onValueChange = { noteText = it },
+            label = { Text("Keterangan Pengeluaran") },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+        )
+
+        // Cancelled Switch (Toggle)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("Batalkan Transaksi", fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Tandai transaksi ini sebagai dibatalkan", fontSize = 11.sp, color = Color.Gray)
+            }
+            Switch(
+                checked = isCancelled,
+                onCheckedChange = { isCancelled = it }
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Button(
+                onClick = {
+                    viewModel.setSubScreen(SubScreen.NONE)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                border = BorderStroke(1.dp, CharcoalBorder),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+            ) {
+                Text("Batal", color = Color.White)
+            }
+
+            Button(
+                onClick = {
+                    val amt = amountText.toDoubleOrNull() ?: 0.0
+                    if (amt > 0.0 && recipient.isNotBlank()) {
+                        viewModel.editExpense(
+                            id = exp.id,
+                            category = selectedCategory,
+                            amount = amt,
+                            dateMs = expenseDateMs,
+                            recipient = recipient,
+                            note = noteText,
+                            isCancelled = isCancelled,
+                            time = expenseTime,
+                            memberId = selectedMemberId,
+                            createdAt = exp.createdAt
+                        )
+                        Toast.makeText(context, "Pengeluaran berhasil diperbarui", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Mohon lengkapi nominal dan nama penerima", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+            ) {
+                Text("Simpan", fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        }
+    }
+
+    if (isMemberDialogShown) {
+        MemberSelectionDialog(
+            members = activeMembers,
+            onDismiss = { isMemberDialogShown = false },
+            onSelect = { member ->
+                recipient = member.name
+                selectedMemberId = member.id
+                isMemberDialogShown = false
+            }
+        )
     }
 }
 
@@ -4510,4 +4987,374 @@ fun MemberSelectionDialog(
         containerColor = CharcoalDark,
         shape = RoundedCornerShape(14.dp)
     )
+}
+
+@Composable
+fun BackupDataScreen(viewModel: AppViewModel) {
+    val context = LocalContext.current
+    val configState by viewModel.config.collectAsStateWithLifecycle()
+
+    val sharedPrefs = remember { context.getSharedPreferences("steker_backup_prefs", android.content.Context.MODE_PRIVATE) }
+    var lastBackupInfo by remember {
+        mutableStateOf(sharedPrefs.getString("last_backup_info", "Belum ada riwayat backup") ?: "Belum ada riwayat backup")
+    }
+
+    // Dialog state variables
+    var showExportWarning by remember { mutableStateOf(false) }
+    var showPinDialog by remember { mutableStateOf(false) }
+    var showImportOptionDialog by remember { mutableStateOf(false) }
+
+    // PIN input state
+    var pinInput by remember { mutableStateOf("") }
+    var pinErrorMsg by remember { mutableStateOf("") }
+
+    // Backup content currently being processed for import
+    var pendingImportJson by remember { mutableStateOf("") }
+
+    // File Picker Launcher for JSON import
+    val importFilePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val jsonText = inputStream?.bufferedReader()?.use { it.readText() } ?: ""
+                
+                // Preliminary Validation
+                if (jsonText.isBlank() || (!jsonText.contains("\"config\"") && !jsonText.contains("\"members\""))) {
+                    Toast.makeText(context, "File backup tidak valid atau bukan dari Steker App.", Toast.LENGTH_LONG).show()
+                } else {
+                    pendingImportJson = jsonText
+                    pinInput = ""
+                    pinErrorMsg = ""
+                    showPinDialog = true
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Gagal membaca file: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Hero Section / Card Info
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CharcoalSurface),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, CharcoalBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Backup Offline & Pindah Data",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Gunakan fitur ini untuk membuat backup data lokal Anda secara offline atau memindahkannya ke ponsel baru tanpa internet.",
+                        fontSize = 11.sp,
+                        color = Color.LightGray,
+                        lineHeight = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Divider(color = CharcoalBorder)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Informasi Backup Terakhir:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = lastBackupInfo,
+                        fontSize = 11.sp,
+                        color = Color.White,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        }
+
+        // Action Options
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Export Card Button
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CharcoalSurface),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, CharcoalBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showExportWarning = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF1565C0).copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.CloudUpload, contentDescription = "Export", tint = Color(0xFF1565C0))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("1. Export Database", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Ekspor seluruh data keuangan dan anggota ke file JSON untuk dipindahkan atau disimpan.", fontSize = 11.sp, color = Color.LightGray)
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
+                    }
+                }
+
+                // Import Card Button
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CharcoalSurface),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, CharcoalBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { importFilePicker.launch("application/json") }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF2E7D32).copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = "Import", tint = Color(0xFF2E7D32))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("2. Import Database", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Pilih file backup JSON untuk memulihkan seluruh data (ganti semua atau gabungkan data).", fontSize = 11.sp, color = Color.LightGray)
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
+                    }
+                }
+            }
+        }
+    }
+
+    // ==========================================
+    // DIALOGS
+    // ==========================================
+
+    // 1. Export Warning Dialog
+    if (showExportWarning) {
+        AlertDialog(
+            onDismissRequest = { showExportWarning = false },
+            title = { Text("Peringatan Keamanan", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    text = "File backup berisi data keuangan dan data anggota. Jangan dibagikan kepada pihak yang tidak berkepentingan.",
+                    color = Color.LightGray
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showExportWarning = false
+                        viewModel.triggerLocalBackup { jsonString ->
+                            if (jsonString != null) {
+                                try {
+                                    val dateStr = SimpleDateFormat("yyyy-MM-dd-HHmm", Locale.getDefault()).format(Date())
+                                    val fileName = "Steker-App-Backup-$dateStr.json"
+                                    
+                                    val cacheFile = java.io.File(context.externalCacheDir ?: context.cacheDir, fileName)
+                                    java.io.FileOutputStream(cacheFile).use { fos ->
+                                        fos.write(jsonString.toByteArray())
+                                    }
+                                    
+                                    // Update backup info in shared prefs
+                                    val backupDateTime = SimpleDateFormat("dd-MM-yyyy HH:mm", Locale.getDefault()).format(Date())
+                                    val updatedInfo = "Berhasil backup pada $backupDateTime\nFile: $fileName"
+                                    sharedPrefs.edit().putString("last_backup_info", updatedInfo).apply()
+                                    lastBackupInfo = updatedInfo
+
+                                    Toast.makeText(context, "Backup berhasil disimpan di: $fileName", Toast.LENGTH_SHORT).show()
+
+                                    // Trigger Share Sheet
+                                    val uri: android.net.Uri = androidx.core.content.FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        cacheFile
+                                    )
+                                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                        type = "application/json"
+                                        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                        putExtra(android.content.Intent.EXTRA_SUBJECT, fileName)
+                                        putExtra(android.content.Intent.EXTRA_TEXT, "Backup Data Steker App v1.5 - Tanggal: $backupDateTime")
+                                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    val chooser = android.content.Intent.createChooser(shareIntent, "Kirim / Simpan Backup JSON")
+                                    chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(chooser)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Gagal mengekspor file: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                Toast.makeText(context, "Gagal membuat backup data", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text("Lanjutkan", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExportWarning = false }) {
+                    Text("Batal", color = Color.White)
+                }
+            },
+            containerColor = CharcoalDark,
+            shape = RoundedCornerShape(14.dp)
+        )
+    }
+
+    // 2. Security PIN Prompt Dialog before Import
+    if (showPinDialog) {
+        AlertDialog(
+            onDismissRequest = { showPinDialog = false },
+            title = { Text("Verifikasi Keamanan", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Demi keamanan data keuangan organisasi, silakan masukkan PIN Pengurus aktif Anda saat ini:", color = Color.LightGray)
+                    OutlinedTextField(
+                        value = pinInput,
+                        onValueChange = { pinInput = it },
+                        placeholder = { Text("PIN Pengurus (6 digit)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = CharcoalBorder
+                        )
+                    )
+                    if (pinErrorMsg.isNotEmpty()) {
+                        Text(pinErrorMsg, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (pinInput == configState?.pin) {
+                            showPinDialog = false
+                            showImportOptionDialog = true
+                        } else {
+                            pinErrorMsg = "PIN yang Anda masukkan salah. Akses ditolak."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text("Verifikasi", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPinDialog = false }) {
+                    Text("Batal", color = Color.White)
+                }
+            },
+            containerColor = CharcoalDark,
+            shape = RoundedCornerShape(14.dp)
+        )
+    }
+
+    // 3. Overwrite vs Merge Option Dialog
+    if (showImportOptionDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportOptionDialog = false },
+            title = { Text("Metode Import Data", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    text = "Pilih bagaimana data backup ini akan dimasukkan ke dalam aplikasi:\n\n" +
+                            "1. Ganti Semua Data (Overwrite / Default untuk HP baru):\n" +
+                            "Menghapus seluruh data lama di HP ini dan menggantinya 100% dengan data dari file backup.\n\n" +
+                            "2. Gabungkan Data (Merge):\n" +
+                            "Menggabungkan data dari file backup dengan data yang sudah ada di HP ini tanpa menghapus data lama (bila ada ID yang sama, diupdate ke versi terbaru).",
+                    color = Color.LightGray,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp
+                )
+            },
+            confirmButton = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            showImportOptionDialog = false
+                            viewModel.triggerLocalRestore(pendingImportJson, overwrite = true) { success ->
+                                if (success) {
+                                    val importDateTime = SimpleDateFormat("dd-MM-yyyy HH:mm", Locale.getDefault()).format(Date())
+                                    val updatedInfo = "Berhasil import (Ganti Semua) pada $importDateTime"
+                                    sharedPrefs.edit().putString("last_backup_info", updatedInfo).apply()
+                                    lastBackupInfo = updatedInfo
+                                    Toast.makeText(context, "Seluruh data berhasil dipulihkan (Ganti Semua Data)!", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Gagal memproses restore database.", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Ganti Semua Data (Overwrite)", color = Color.White)
+                    }
+
+                    Button(
+                        onClick = {
+                            showImportOptionDialog = false
+                            viewModel.triggerLocalRestore(pendingImportJson, overwrite = false) { success ->
+                                if (success) {
+                                    val importDateTime = SimpleDateFormat("dd-MM-yyyy HH:mm", Locale.getDefault()).format(Date())
+                                    val updatedInfo = "Berhasil import (Gabungkan) pada $importDateTime"
+                                    sharedPrefs.edit().putString("last_backup_info", updatedInfo).apply()
+                                    lastBackupInfo = updatedInfo
+                                    Toast.makeText(context, "Data berhasil digabungkan dengan database lokal!", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Gagal memproses penggabungan database.", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Gabungkan Data (Merge)", color = Color.White)
+                    }
+
+                    TextButton(
+                        onClick = { showImportOptionDialog = false },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Batal", color = Color.White, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                }
+            },
+            dismissButton = {},
+            containerColor = CharcoalDark,
+            shape = RoundedCornerShape(14.dp)
+        )
+    }
 }
